@@ -244,17 +244,14 @@ def main():
     assert env.action_space.high.max() <= 1
 
     print("Creating replay buffer...")
-    if args.reduce_rb_size == True:
-        temp = 3
-    else:
-        temp = 3 * args.frame_stack
-
+    num_ch = 3 if args.reduce_rb_size == True else 3 * args.frame_stack
     replay_buffer = utils.ReplayBuffer(
-        obs_shape=(temp, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
+        obs_shape=(num_ch, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
         action_shape=env.action_space.shape,
         capacity=args.replay_buffer_capacity,
         batch_size=args.batch_size,
-        device=device
+        device=device,
+        args=args
     )
     print("Replay buffer created !!!")
 
@@ -304,7 +301,7 @@ def main():
                 start_time = time.time()
 
             # evaluate agent periodically
-            if itr % args.eval_freq == 0:
+            if itr % args.eval_freq == 0 and itr > 0:
                 L.log('eval/episode_idx', episode_idx, itr)
                 
                 print("Starting evaluation...")
