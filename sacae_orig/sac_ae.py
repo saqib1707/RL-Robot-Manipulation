@@ -141,7 +141,6 @@ class Critic(nn.Module):
     ):
         super().__init__()
 
-
         self.encoder = make_encoder(
             encoder_type, obs_shape, encoder_feature_dim, num_layers,
             num_filters

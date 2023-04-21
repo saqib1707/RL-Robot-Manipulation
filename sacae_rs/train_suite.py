@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--frame_stack', default=3, type=int)
     parser.add_argument('--train_camera_names', default=["frontview"], help="Cameras used to generate views for training")
-    parser.add_argument('--render_camera_names', default=["frontview", "agentview"], help="Names of camera to render")
+    parser.add_argument('--render_camera_names', default=["frontview", "agentview", "sideview", "birdview", "robot0_eye_in_hand", "robot1_eye_in_hand", "robot0_robotview", "shouldercamera0"], help="Names of camera to render")
     parser.add_argument('--horizon', type=int, default=1000, help="every episode lasts for exactly horizon timesteps")
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
@@ -189,7 +189,7 @@ def main():
         env_name=args.domain_name, 
         robots=args.robots, 
         controller_configs=controller_config,
-        reward_shaping=True,                # if True, uses dense rewards else sparse 
+        reward_shaping=True,          # if True, uses dense rewards else sparse 
         has_renderer=False, 
         has_offscreen_renderer=True, 
         use_camera_obs=(args.encoder_type == 'pixel'), 
@@ -236,8 +236,6 @@ def main():
     if args.load_saved_logdir == "":
         with open(os.path.join(args.work_dir, 'args.json'), 'w') as f:
             json.dump(vars(args), f, sort_keys=True, indent=4)
-    else:
-        pass
 
     # the dmc2gym wrapper standardizes actions
     assert env.action_space.low.min() >= -1
@@ -301,7 +299,7 @@ def main():
                 start_time = time.time()
 
             # evaluate agent periodically
-            if itr % args.eval_freq == 0 and itr > 0:
+            if itr % args.eval_freq == 0:
                 L.log('eval/episode_idx', episode_idx, itr)
                 
                 print("Starting evaluation...")
@@ -316,7 +314,7 @@ def main():
                     replay_buffer.save(buffer_dir)
                     print("Saved replay buffer!!!")
 
-            print("Train reward:", episode_reward)
+            # print("Train reward:", episode_reward)
             # reset the environment, episode reward, episode step, and update the episode index
             obs = env.reset()
             done = False

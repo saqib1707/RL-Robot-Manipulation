@@ -9,7 +9,7 @@ def tie_weights(src, trg):
 
 
 # OUT_DIM = {2: 39, 4: 35, 6: 31}
-OUT_DIM = {2: 39, 4: 35, 6: 23, 7:23}
+OUT_DIM = {2: 39, 4: 35, 6:23, 7:23}
 
 
 class PixelEncoder(nn.Module):

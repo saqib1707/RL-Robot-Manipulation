@@ -8,7 +8,8 @@ def tie_weights(src, trg):
     trg.bias = src.bias
 
 
-OUT_DIM = {2: 39, 4: 35, 6: 31}
+# OUT_DIM = {2: 39, 4: 35, 6: 31}
+OUT_DIM = {2:39, 4:35, 6:23, 7:23}
 
 
 class PixelEncoder(nn.Module):
@@ -21,10 +22,21 @@ class PixelEncoder(nn.Module):
         self.feature_dim = feature_dim
         self.num_layers = num_layers
 
+        self.num_layers_stride2 = 0
         self.convs = nn.ModuleList(
             [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
         )
-        for i in range(num_layers - 1):
+        self.num_layers_stride2 += 1
+
+        if obs_shape[1] == 256:
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=2))
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=2))
+            self.num_layers_stride2 += 2
+        elif obs_shape[1] == 128:
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=2))
+            self.num_layers_stride2 += 1
+
+        for i in range(num_layers - self.num_layers_stride2):
             self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
 
         out_dim = OUT_DIM[num_layers]

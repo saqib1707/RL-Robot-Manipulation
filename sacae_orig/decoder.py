@@ -18,10 +18,25 @@ class PixelDecoder(nn.Module):
 
         self.deconvs = nn.ModuleList()
 
-        for i in range(self.num_layers - 1):
+        if obs_shape[1] == 256:
+            self.num_layers_stride2 = 3
+        elif obs_shape[1] == 128:
+            self.num_layers_stride2 = 2
+        else:
+            self.num_layers_stride2 = 1
+
+        for i in range(self.num_layers - self.num_layers_stride2):
             self.deconvs.append(
                 nn.ConvTranspose2d(num_filters, num_filters, 3, stride=1)
             )
+
+        for i in range(self.num_layers_stride2 - 1):
+            self.deconvs.append(
+                nn.ConvTranspose2d(
+                    num_filters, num_filters, 3, stride=2
+                )
+            )
+        
         self.deconvs.append(
             nn.ConvTranspose2d(
                 num_filters, obs_shape[0], 3, stride=2, output_padding=1

@@ -167,15 +167,15 @@ class FrameStack(gym.Wrapper):
 
     def reset(self):
         obs = self.env.reset()
-        plt.imsave('images/test1.png', np.transpose(obs, (1,2,0)))
+        # plt.imsave('images/testreset.png', np.transpose(obs, (1,2,0)))
         for _ in range(self._k):
             self._frames.append(obs)
         return self._get_obs()
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
-        print("stage-step:", obs.shape, np.max(obs), np.min(obs), reward)
-        # plt.imsave('images/test2.png', np.transpose(obs, (1,2,0)))
+        # print("stage-step:", obs.shape, np.max(obs), np.min(obs), reward)
+        # plt.imsave('images/teststep.png', np.transpose(obs, (1,2,0)))
         self._frames.append(obs)
         return self._get_obs(), reward, done, info
 

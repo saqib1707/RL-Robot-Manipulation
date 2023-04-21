@@ -1,0 +1,15 @@
+# sets up the bash prompt
+
+parse_git_branch() {
+  git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+}
+
+PS1="\[\033[32m\]\u";
+PS1+="@";
+PS1+="\[\033[32m\]\h";
+PS1+=" : ";
+PS1+="\[\033[33;1m\]\w";
+PS1+="\[\033[32m\]\$(parse_git_branch)";
+PS1+="\n\[\033[m\]$ ";
+
+export PS1;
