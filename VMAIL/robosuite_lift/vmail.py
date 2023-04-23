@@ -98,7 +98,6 @@ def define_config():
 class VMAIL(tools.Module):
 
   def __init__(self, config, model_datadir, policy_datadir, expert_datadir, actspace, writer):
-    # print("Inside VMAIL init")
     self._c = config
     self._actspace = actspace
     self._actdim = actspace.n if hasattr(actspace, 'n') else actspace.shape[0]

@@ -26,23 +26,21 @@ import robosuite as suite
 from robosuite.wrappers import GymWrapper
 from robosuite.controllers import load_controller_config
 
-# load default controller parameters for Operational Space Control (OSC)
-controller_config = load_controller_config(default_controller="OSC_POSE")
-
 utc_dt = datetime.now(timezone.utc).astimezone(pytz.timezone('US/Pacific'))
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     # environment
-    parser.add_argument('--domain_name', default='Lift')
+    parser.add_argument('--domain_name', default="Lift", type=str)
     # parser.add_argument('--task_name', default='run')
     parser.add_argument('--robots', default=["Panda"])
+    parser.add_argument('--controller', default="OSC_POSE", type=str)
     parser.add_argument('--image_size', default=84, type=int)
     parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--frame_stack', default=3, type=int)
-    parser.add_argument('--train_camera_names', default=["frontview"], help="Cameras used to generate views for training")
-    parser.add_argument('--render_camera_names', default=["frontview", "agentview", "sideview", "birdview", "robot0_eye_in_hand", "robot1_eye_in_hand", "robot0_robotview", "shouldercamera0"], help="Names of camera to render")
+    parser.add_argument('--train_camera_names', default=["agentview"], help="Cameras used to generate views for training")
+    parser.add_argument('--render_camera_names', default=["frontview", "agentview"], help="Names of camera to render")
     parser.add_argument('--horizon', type=int, default=1000, help="every episode lasts for exactly horizon timesteps")
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
@@ -183,6 +181,12 @@ def main():
     else:
         print("Device:", device)
 
+    if args.controller != "":
+        # load default controller parameters for Operational Space Control (OSC)
+        controller_config = load_controller_config(default_controller=args.controller)
+    else:
+        controller_config = None
+
     # create robosuite environment and wrap using gym library
     print("Creating robosuite environment ...")
     env = suite.make(
@@ -200,6 +204,15 @@ def main():
         camera_heights=args.image_size, 
         camera_widths=args.image_size, 
     )
+    # Get the camera object
+    # camera = env.renderer.camera
+    # print("Camera:", camera)
+
+    # Set the camera position and orientation
+    # camera.set_pos([0.5, 0.5, 1.0])
+    # camera.set_quat([1, 0, 0, 0])  # Identity quaternion to face the origin
+    # camera.set_pos([1.6, 0, 1.45])
+    # camera.set_quat([0.56, 0.43, 0.43, 0.56])
     print("Robosuite env created !!!")
 
     env = GymWrapper(env)

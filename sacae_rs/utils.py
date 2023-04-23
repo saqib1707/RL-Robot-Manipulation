@@ -183,7 +183,7 @@ class FrameStack(gym.Wrapper):
         if self.cam_obs_dim > 0:
             obs = np.flip(obs[:self.cam_obs_dim].reshape(self._img_height, self._img_width, self._img_channels), axis=0)
             obs = obs.astype(np.uint8)
-            plt.imsave('images/test1.png', obs)
+            # plt.imsave('images/test1.png', obs)
             obs = np.transpose(obs, (2,0,1))
         return obs
 
