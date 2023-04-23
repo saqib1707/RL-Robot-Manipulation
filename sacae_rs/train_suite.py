@@ -204,15 +204,7 @@ def main():
         camera_heights=args.image_size, 
         camera_widths=args.image_size, 
     )
-    # Get the camera object
-    # camera = env.renderer.camera
-    # print("Camera:", camera)
-
-    # Set the camera position and orientation
-    # camera.set_pos([0.5, 0.5, 1.0])
-    # camera.set_quat([1, 0, 0, 0])  # Identity quaternion to face the origin
-    # camera.set_pos([1.6, 0, 1.45])
-    # camera.set_quat([0.56, 0.43, 0.43, 0.56])
+    
     print("Robosuite env created !!!")
 
     env = GymWrapper(env)
