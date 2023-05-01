@@ -44,14 +44,18 @@ episodes = load_episodes(directory)
 
 print(f"Loaded {len(episodes)} episodes")
 print(f"Keys and value shapes:")
-filenames = sorted(directory.glob('*.npz'))[0:2]
+filenames = sorted(directory.glob('*.npz'))
 
+print(len(filenames))
 for filename in filenames:
-    for k, v in episodes[str(filename)].items():
-        # print(k, v.shape)
+    # print(filename, episodes[str(filename)])
+    print(filename, episodes[str(filename)]["image"].shape)
+    break
+    # for k, v in episodes[str(filename)].items():
+    #     # print(k, v.shape)
 
-        if k == 'robot0_touch-state':
-            print(k, np.unique(v))
+    #     if k == 'robot0_touch-state':
+    #         print(k, np.unique(v))
         
-        if k == 'robot0_touch':
-            print(k, np.unique(v))
+    #     if k == 'robot0_touch':
+    #         print(k, np.unique(v))

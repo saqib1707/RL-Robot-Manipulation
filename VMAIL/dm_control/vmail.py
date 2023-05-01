@@ -31,11 +31,17 @@ utc_dt = datetime.now(timezone.utc).astimezone(pytz.timezone('US/Pacific'))
 
 def define_config():
   config = tools.AttrDict()
-  basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+
   # General.
-  config.logdir = pathlib.Path(basedir+'/.logdir')
-  config.model_datadir = pathlib.Path(basedir+'/.model_data')
-  config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  # basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+  # config.logdir = pathlib.Path(basedir+'/.logdir')
+  # config.model_datadir = pathlib.Path(basedir+'/.model_data')
+  # config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  # config.expert_datadir = pathlib.Path('.expert')
+
+  config.logdir = pathlib.Path('.logdir')
+  config.model_datadir = pathlib.Path('.model_data')
+  config.policy_datadir = pathlib.Path('.policy_data')
   config.expert_datadir = pathlib.Path('.expert')
   config.seed = 0
   config.steps = 5e5
@@ -46,8 +52,8 @@ def define_config():
   config.gpu_growth = True
   config.precision = 32
   # Environment.
-  config.task = 'dmc_walker_walk'
-  # config.task = 'dmc_cheetah_run'
+  # config.task = 'dmc_walker_walk'
+  config.task = 'dmc_cheetah_run'
   config.envs = 1
   config.parallel = 'none'
   config.action_repeat = 2

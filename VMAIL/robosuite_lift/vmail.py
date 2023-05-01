@@ -12,7 +12,7 @@ from tqdm import tqdm
 import pdb
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['MUJOCO_GL'] = 'egl'
+# os.environ['MUJOCO_GL'] = 'egl'
 
 import numpy as np
 import torch
@@ -31,11 +31,16 @@ utc_dt = datetime.now(timezone.utc).astimezone(pytz.timezone('US/Pacific'))
 
 def define_config():
   config = tools.AttrDict()
-  basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
   # General.
-  config.logdir = pathlib.Path(basedir+'/.logdir')
-  config.model_datadir = pathlib.Path(basedir+'/.model_data')
-  config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  # basedir = os.path.join("logdir", 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S'))
+  # config.logdir = pathlib.Path(basedir+'/.logdir')
+  # config.model_datadir = pathlib.Path(basedir+'/.model_data')
+  # config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  # config.expert_datadir = pathlib.Path('.expert')
+
+  config.logdir = pathlib.Path('.logdir')
+  config.model_datadir = pathlib.Path('.model_data')
+  config.policy_datadir = pathlib.Path('.policy_data')
   config.expert_datadir = pathlib.Path('.expert')
   config.seed = 0
   config.steps = 5e5
@@ -135,9 +140,7 @@ class VMAIL(tools.Module):
       with self._strategy.scope():
         for train_step in range(n):
           log_images = self._c.log_images and log and train_step == 0
-          a = next(self._model_dataset)
-          b = next(self._expert_dataset)
-          self.train(a, b, log_images)
+          self.train(next(self._model_dataset), next(self._expert_dataset), log_images)
       if log:
         self._write_summaries()
     action, state = self.policy(obs, state, training)
@@ -210,7 +213,6 @@ class VMAIL(tools.Module):
       expert_loss = tf.reduce_mean(expert_d.log_prob(tf.ones_like(expert_d.mean())))
       policy_loss = tf.reduce_mean(policy_d.log_prob(tf.zeros_like(policy_d.mean())))
       
-      
       with tf.GradientTape() as penalty_tape:
           alpha = tf.expand_dims(tf.random.uniform(feat_policy_dist.shape[:2]), -1)
           disc_penalty_input = alpha * feat_policy_dist + \
@@ -220,7 +222,6 @@ class VMAIL(tools.Module):
           inner_dsicriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), dsicriminator_variables)
           inner_discriminator_norm = tf.linalg.global_norm(inner_dsicriminator_grads)
           grad_penalty = (inner_discriminator_norm - 1)**2
-          
 
       discriminator_loss = -(expert_loss + policy_loss) + self._c.alpha * grad_penalty
       discriminator_loss /= float(self._strategy.num_replicas_in_sync)
@@ -408,10 +409,8 @@ def preprocess(obs, config):
         obs[k] = tf.cast(v, dtype)
   return obs
 
-
 def count_steps(datadir, config):
   return tools.count_episodes(datadir)[1] * config.action_repeat
-
 
 def load_dataset(directory, config):
   # print("Inside load_dataset")
@@ -426,7 +425,6 @@ def load_dataset(directory, config):
   dataset = dataset.map(functools.partial(preprocess, config=config))
   dataset = dataset.prefetch(10)
   return dataset
-
 
 def summarize_episode(episode, config, datadir, writer, prefix):
   episodes, steps = tools.count_episodes(datadir)
@@ -445,7 +443,6 @@ def summarize_episode(episode, config, datadir, writer, prefix):
     [tf.summary.scalar('sim/' + k, v) for k, v in metrics]
     if prefix == 'test':
       tools.video_summary(f'sim/{prefix}/video', episode['agentview_image'][None])
-
 
 def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
   suite, task = config.task.split('_', 1)

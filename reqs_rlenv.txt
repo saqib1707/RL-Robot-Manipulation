@@ -33,14 +33,14 @@ numpy==1.23.5
 nvidia-cublas-cu11==11.10.3.66
 
 # works for sacae
-nvidia-cuda-nvrtc-cu11==11.7.99
-nvidia-cuda-runtime-cu11==11.7.99
-nvidia-cudnn-cu11==8.5.0.96
+# nvidia-cuda-nvrtc-cu11==11.7.99
+# nvidia-cuda-runtime-cu11==11.7.99
+# nvidia-cudnn-cu11==8.5.0.96
 
-# works for vmail
-# nvidia-cuda-nvrtc-cu11==11.8.89
-# nvidia-cuda-runtime-cu11==11.8.89
-# nvidia-cudnn-cu11==8.6.0.163
+# works for vmail and sacae
+nvidia-cuda-nvrtc-cu11==11.8.89
+nvidia-cuda-runtime-cu11==11.8.89
+nvidia-cudnn-cu11==8.6.0.163
 
 oauthlib==3.2.2
 opencv-python==4.7.0.72

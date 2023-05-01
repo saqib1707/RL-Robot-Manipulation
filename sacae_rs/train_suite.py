@@ -33,14 +33,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # environment
     parser.add_argument('--domain_name', default="Lift", type=str)
-    # parser.add_argument('--task_name', default='run')
     parser.add_argument('--robots', default=["Panda"])
-    parser.add_argument('--controller', default="OSC_POSE", type=str)
+    parser.add_argument('--controller', default="", type=str)
     parser.add_argument('--image_size', default=84, type=int)
     parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--frame_stack', default=3, type=int)
-    parser.add_argument('--train_camera_names', default=["agentview"], help="Cameras used to generate views for training")
-    parser.add_argument('--render_camera_names', default=["frontview", "agentview"], help="Names of camera to render")
+    parser.add_argument('--train_camera_names', default=["robot0_eye_in_hand"], help="Cameras used to generate views for training")
+    parser.add_argument('--render_camera_names', default=["frontview"], help="Names of camera to render")
     parser.add_argument('--horizon', type=int, default=1000, help="every episode lasts for exactly horizon timesteps")
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
@@ -173,7 +172,6 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == 'cuda':
-        # torch.set_default_tensor_type('torch.cuda.FloatTensor')
         print("Number of GPU devices:", torch.cuda.device_count())
         print("GPU device name:", torch.cuda.get_device_name(0))
         print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
@@ -181,9 +179,12 @@ def main():
     else:
         print("Device:", device)
 
-    if args.controller != "":
+    if args.controller == "OSC_POSE":
         # load default controller parameters for Operational Space Control (OSC)
-        controller_config = load_controller_config(default_controller=args.controller)
+        controller_config = load_controller_config(default_controller="OSC_POSE")
+    elif args.controller == "robomimic":
+        with open("controller_config/robomimic.json", 'r') as f:
+            controller_config = json.load(f)
     else:
         controller_config = None
 
@@ -199,16 +200,13 @@ def main():
         use_camera_obs=(args.encoder_type == 'pixel'), 
         use_object_obs=False, 
         horizon=args.horizon, 
-        # render_camera='frontview', 
         camera_names=args.train_camera_names, 
         camera_heights=args.image_size, 
         camera_widths=args.image_size, 
     )
-    
     print("Robosuite env created !!!")
 
     env = GymWrapper(env)
-    env.seed(args.seed)
     print_env_info(env)
     print("Robosuite env wrapped in gym !!!")
 
@@ -319,7 +317,6 @@ def main():
                     replay_buffer.save(buffer_dir)
                     print("Saved replay buffer!!!")
 
-            # print("Train reward:", episode_reward)
             # reset the environment, episode reward, episode step, and update the episode index
             obs = env.reset()
             done = False
