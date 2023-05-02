@@ -4,15 +4,14 @@ from tensorflow.keras import layers as tfkl
 from tensorflow_probability import distributions as tfd
 # from tensorflow.keras.mixed_precision import experimental as prec
 import tensorflow.keras.mixed_precision as prec
-import pdb
 
 import tools
+import pdb
 
 
 class RSSM(tools.Module):
 
   def __init__(self, stoch=30, deter=200, hidden=200, act=tf.nn.elu):
-    # print("stage--3:", stoch, deter, hidden)
     super().__init__()
     self._activation = act
     self._stoch_size = stoch
@@ -34,7 +33,6 @@ class RSSM(tools.Module):
       state = self.initial(tf.shape(action)[0])
     embed = tf.transpose(embed, [1, 0, 2])
     action = tf.transpose(action, [1, 0, 2])
-    # print("stage--4:", embed.shape, action.shape)
     post, prior = tools.static_scan(
         lambda prev, inputs: self.obs_step(prev[0], *inputs),
         (action, embed), (state, state))
@@ -48,7 +46,6 @@ class RSSM(tools.Module):
       state = self.initial(tf.shape(action)[0])
     assert isinstance(state, dict), state
     action = tf.transpose(action, [1, 0, 2])
-    # print("stage--1:", state, action)
     prior = tools.static_scan(self.img_step, action, state)
     prior = {k: tf.transpose(v, [1, 0, 2]) for k, v in prior.items()}
     return prior
@@ -61,7 +58,6 @@ class RSSM(tools.Module):
 
   @tf.function
   def obs_step(self, prev_state, prev_action, embed):
-    # print("stage-0:", prev_state, prev_action)
     prior = self.img_step(prev_state, prev_action)
     x = tf.concat([prior['deter'], embed], -1)
     x = self.get('obs1', tfkl.Dense, self._hidden_size, self._activation)(x)
@@ -77,7 +73,6 @@ class RSSM(tools.Module):
     x = tf.concat([prev_state['stoch'], prev_action], -1)
     # print("stage-1:", x.shape)
     x = self.get('img1', tfkl.Dense, self._hidden_size, self._activation)(x)
-    # print("stage-2:", x.shape)
     x, deter = self._cell(x, [prev_state['deter']])
     deter = deter[0]  # Keras wraps the state in a list.
     x = self.get('img2', tfkl.Dense, self._hidden_size, self._activation)(x)
@@ -106,9 +101,8 @@ class ConvEncoder(tools.Module):
     x = self.get('h3', tfkl.Conv2D, 4 * self._depth, 4, **kwargs)(x)
     # print("stage-4:", x.shape)
     x = self.get('h4', tfkl.Conv2D, 8 * self._depth, 4, **kwargs)(x)
-    # print("stage-5:", x.shape)
     x = self.get('h5', tfkl.Conv2D, 8 * self._depth, 2, strides=1, activation=self._act)(x)
-    # print("stage-10:", x.shape)
+    # print("stage-5:", x.shape)
     shape = tf.concat([tf.shape(obs['agentview_image'])[:-3], [32 * self._depth]], 0)
     # tf.print("stage-6:", shape)
     # pdb.set_trace()
@@ -124,22 +118,13 @@ class ConvDecoder(tools.Module):
 
   def __call__(self, features):
     kwargs = dict(strides=2, activation=self._act)
-    # print("stage-1:", features.shape)
     x = self.get('h1', tfkl.Dense, 32 * self._depth, None)(features)
-    # print("stage-2:", x.shape)
     x = tf.reshape(x, [-1, 1, 1, 32 * self._depth])
-    # print("stage-3:", x.shape)
     x = self.get('h2', tfkl.Conv2DTranspose, 4 * self._depth, 7, **kwargs)(x)
-    # print("stage-4:", x.shape)
     x = self.get('h3', tfkl.Conv2DTranspose, 2 * self._depth, 7, **kwargs)(x)
-    # print("stage-5:", x.shape)
     x = self.get('h4', tfkl.Conv2DTranspose, 1 * self._depth, 4, **kwargs)(x)
-    # print("stage-6:", x.shape)
     x = self.get('h5', tfkl.Conv2DTranspose, self._shape[-1], 6, strides=2)(x)
-    # print("stage-7:", x.shape)
     mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0))
-    # print("stage-8:", mean.shape)
-    
     return tfd.Independent(tfd.Normal(mean, 1), len(self._shape))
 
 

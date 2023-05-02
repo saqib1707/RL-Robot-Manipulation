@@ -4,7 +4,6 @@ import pathlib
 import pickle
 import re
 import uuid
-import pdb
 
 import gym
 import numpy as np
@@ -32,7 +31,7 @@ class Module(tf.Module):
   def load(self, filename):
     with pathlib.Path(filename).open('rb') as f:
       values = pickle.load(f)
-    # tf.nest.map_structure(lambda x, y: x.assign(y), self.variables, values)
+    tf.nest.map_structure(lambda x, y: x.assign(y), self.variables, values)
 
   def get(self, name, ctor, *args, **kwargs):
     # Create or get layer by name to avoid mentioning it in the constructor.
@@ -101,7 +100,6 @@ def encode_gif(frames, fps):
 
 def simulate(agent, envs, steps=0, episodes=0, state=None):
   # Initialize or unpack simulation state.
-  # print("Inside simulate")
   if state is None:
     step, episode = 0, 0
     done = np.ones(len(envs), np.bool)
@@ -119,7 +117,6 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
         obs[index] = promise()
     # Step agents.
     obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
-    # pdb.set_trace()
     action, agent_state = agent(obs, done, agent_state)
     action = np.array(action)
     assert len(action) == len(envs)
@@ -133,7 +130,6 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
     step += (done * length).sum()
     length *= (1 - done)
   # Return new state to allow resuming the simulation.
-  # print("End of simulate")
   return (step - steps, episode - episodes, done, length, obs, agent_state)
 
 
@@ -163,13 +159,20 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
   directory = pathlib.Path(directory).expanduser()
   random = np.random.RandomState(seed)
   cache = {}
+  removed_keys = ['robot0_touch', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_touch-state', 'object-state']
   while True:
     for filename in directory.glob('*.npz'):
       if filename not in cache:
         try:
           with filename.open('rb') as f:
-            episode = np.load(f)
-            episode = {k: episode[k] for k in episode.keys()}
+            raw_episode = np.load(f)
+            episode = {}
+            for k, v in raw_episode.items():
+              if k in removed_keys:
+                pass
+              else:
+                episode[k] = v
+            # episode = {k: episode[k] for k in episode.keys()}
         except Exception as e:
           print(f'Could not load episode: {e}')
           continue

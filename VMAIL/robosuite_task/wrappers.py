@@ -10,10 +10,8 @@ from PIL import Image
 
 
 class RobosuiteTask:
-  def __init__(self, name, size=(84, 84), camera=None):
+  def __init__(self, name, horizon=1000, size=(84, 84), camera=None):
     domain, task = name.split('_', 1)
-    # print("Domain & Task - ", domain, task)
-
     self._size = size
     self._camera = camera
 
@@ -24,9 +22,8 @@ class RobosuiteTask:
 
       # load default controller parameters for Operational Space Control (OSC)
       controller_config = load_controller_config(default_controller="OSC_POSE")
-
       self._env = suite.make(
-          env_name="Lift", 
+          env_name=domain, 
           robots="Panda", 
           controller_configs=controller_config,
           reward_shaping=True, 
@@ -34,12 +31,11 @@ class RobosuiteTask:
           has_offscreen_renderer=True, 
           use_camera_obs=True, 
           use_object_obs=False, 
-          horizon=1000, 
+          horizon=horizon, 
           camera_names="agentview", 
           camera_heights=size[0], 
           camera_widths=size[1], 
       )
-      # print("This is it:", self._env.action_spec)
 
   @property
   def observation_space(self):
@@ -50,37 +46,28 @@ class RobosuiteTask:
       spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
     
     spaces['agentview_image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
-    spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
-
-    # print("Spaces:", spaces)
+    # spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     return gym.spaces.Dict(spaces)
 
   @property
   def action_space(self):
-    # print("Inside action space")
     spec = self._env.action_spec
     shp = spec[0].shape
     return gym.spaces.Box(spec[0].min(), spec[1].max(), (shp[0],), dtype=np.float32)
 
   def step(self, action):
-    # print("Inside robosuite step function")
-    next_obs, reward, done, _ = self._env.step(action)
-
-    # next_obs['image'] = self.render()
-    next_obs['image'] = next_obs['agentview_image'].copy()
+    next_obs, reward, done, info = self._env.step(action)
+    # next_obs['image'] = next_obs['agentview_image'].copy()
     reward = reward or 0
-    # info = {'discount': np.array(time_step.discount, np.float32)}
-    return next_obs, reward, done, {}
+    return next_obs, reward, done, info
 
   def reset(self):
     obs = self._env.reset()
-    obs['image'] = np.copy(obs['agentview_image'])
-    # obs['image'] = self.render()
+    # obs['image'] = np.copy(obs['agentview_image'])
     return obs
 
 
 class DeepMindControl:
-
   def __init__(self, name, size=(64, 64), camera=None):
     domain, task = name.split('_', 1)
     if domain == 'cup':  # Only domain with multiple words.
@@ -114,7 +101,7 @@ class DeepMindControl:
   def step(self, action):
     time_step = self._env.step(action)
     obs = dict(time_step.observation)
-    obs['agentview_image'] = self.render()
+    obs['image'] = self.render()
     reward = time_step.reward or 0
     done = time_step.last()
     info = {'discount': np.array(time_step.discount, np.float32)}
@@ -123,7 +110,7 @@ class DeepMindControl:
   def reset(self):
     time_step = self._env.reset()
     obs = dict(time_step.observation)
-    obs['agentview_image'] = self.render()
+    obs['image'] = self.render()
     return obs
 
   def render(self, *args, **kwargs):
@@ -133,7 +120,6 @@ class DeepMindControl:
 
 
 class Atari:
-
   LOCK = threading.Lock()
 
   def __init__(
@@ -234,7 +220,7 @@ class Collect:
     transition = obs.copy()
     transition['action'] = action
     transition['reward'] = reward
-    transition['discount'] = info.get('discount', np.array(1 - float(done)))
+    # transition['discount'] = info.get('discount', np.array(1 - float(done)))
     self._episode.append(transition)
     if done:
       episode = {k: [t[k] for t in self._episode] for k in self._episode[0]}
@@ -249,7 +235,7 @@ class Collect:
     transition = obs.copy()
     transition['action'] = np.zeros(self._env.action_space.shape)
     transition['reward'] = 0.0
-    transition['discount'] = 1.0
+    # transition['discount'] = 1.0
     self._episode = [transition]
     return obs
 
@@ -282,8 +268,8 @@ class TimeLimit:
     self._step += 1
     if self._step >= self._duration:
       done = True
-      if 'discount' not in info:
-        info['discount'] = np.array(1.0).astype(np.float32)
+      # if 'discount' not in info:
+      #   info['discount'] = np.array(1.0).astype(np.float32)
       self._step = None
     return obs, reward, done, info
 

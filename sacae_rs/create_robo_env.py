@@ -25,14 +25,14 @@ else:
     print("Device:", device)
 
 env_name = "Lift"
-with open("controller_config/robomimic.json", 'r') as f:
-    controller_config = json.load(f)
+# with open("controller_config/robomimic.json", 'r') as f:
+#     controller_config = json.load(f)
 
 # load default controller parameters for Operational Space Control (OSC)
-# controller_config = load_controller_config(default_controller="OSC_POSE")
+controller_config = load_controller_config(default_controller="OSC_POSE")
 # controller_config = None
-train_camera_names = "frontview"
-horizon = 100
+train_camera_names = "agentview"
+horizon = 1000
 
 # create an environment to visualize on-screen
 env = suite.make(
@@ -43,11 +43,11 @@ env = suite.make(
     # env_configuration="single-arm-opposed",    # arms face each other
     reward_shaping=True, 
     has_renderer=False,                         # on-screen rendering
-    render_camera="frontview",                 # visualize the frontview camera
+    # render_camera="frontview",                 # visualize the frontview camera
     has_offscreen_renderer=True,              # no off-screen rendering
     control_freq=20,                    
     horizon=horizon,               # each episode terminates after 200 steps
-    use_object_obs=False,     # no observations needed
+    use_object_obs=True,     # no observations needed
     use_camera_obs=True,     # don't provide camera/image observations to agent
     camera_names=train_camera_names, 
 )
@@ -55,8 +55,13 @@ print("Robot type:", env.robots[0], len(env.robots))
 print("Environment created")
 
 obs = env.reset()
-print(obs.keys())
-print(obs["frontview_image"].shape)
+# print(obs.keys())
+
+for k, v in obs.items():
+    print(k, v.shape)
+
+print(obs['object-state'])
+# print(obs["frontview_image"].shape)
 
 # env2 = GymWrapper(env)
 # env2.seed(0)

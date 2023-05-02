@@ -33,16 +33,17 @@ def define_config():
   config = tools.AttrDict()
 
   # General.
-  # basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
-  # config.logdir = pathlib.Path(basedir+'/.logdir')
-  # config.model_datadir = pathlib.Path(basedir+'/.model_data')
-  # config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+  config.logdir = pathlib.Path(basedir+'/.logdir')
+  config.model_datadir = pathlib.Path(basedir+'/.model_data')
+  config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  config.expert_datadir = pathlib.Path('.expert')
+
+  # config.logdir = pathlib.Path('.logdir')
+  # config.model_datadir = pathlib.Path('.model_data')
+  # config.policy_datadir = pathlib.Path('.policy_data')
   # config.expert_datadir = pathlib.Path('.expert')
 
-  config.logdir = pathlib.Path('.logdir')
-  config.model_datadir = pathlib.Path('.model_data')
-  config.policy_datadir = pathlib.Path('.policy_data')
-  config.expert_datadir = pathlib.Path('.expert')
   config.seed = 0
   config.steps = 5e5
   config.eval_every = 1000
@@ -414,8 +415,10 @@ def count_steps(datadir, config):
 
 
 def load_dataset(directory, config):
+  print("Load dataset:", directory)
   episode = next(tools.load_episodes(directory, 1))
   types = {k: v.dtype for k, v in episode.items()}
+  print("Types:", types)
   shapes = {k: (None,) + v.shape[1:] for k, v in episode.items()}
   generator = lambda: tools.load_episodes(
       directory, config.train_steps, config.batch_length,
@@ -424,6 +427,7 @@ def load_dataset(directory, config):
   dataset = dataset.batch(config.batch_size, drop_remainder=True)
   dataset = dataset.map(functools.partial(preprocess, config=config))
   dataset = dataset.prefetch(10)
+  print("Dataset:", dataset)
   return dataset
 
 

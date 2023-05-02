@@ -48,9 +48,10 @@ filenames = sorted(directory.glob('*.npz'))
 
 print(len(filenames))
 for filename in filenames:
-    # print(filename, episodes[str(filename)])
-    print(filename, episodes[str(filename)]["image"].shape)
+    print(filename, episodes[str(filename)].keys())
     break
+
+    # np.savez(filename, episodes[str(filename)])
     # for k, v in episodes[str(filename)].items():
     #     # print(k, v.shape)
 

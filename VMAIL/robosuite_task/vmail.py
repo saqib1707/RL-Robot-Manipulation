@@ -31,17 +31,19 @@ utc_dt = datetime.now(timezone.utc).astimezone(pytz.timezone('US/Pacific'))
 
 def define_config():
   config = tools.AttrDict()
+
   # General.
-  # basedir = os.path.join("logdir", 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S'))
-  # config.logdir = pathlib.Path(basedir+'/.logdir')
-  # config.model_datadir = pathlib.Path(basedir+'/.model_data')
-  # config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+  config.logdir = pathlib.Path(basedir+'/.logdir')
+  config.model_datadir = pathlib.Path(basedir+'/.model_data')
+  config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  config.expert_datadir = pathlib.Path('.expert')
+
+  # config.logdir = pathlib.Path('.logdir')
+  # config.model_datadir = pathlib.Path('.model_data')
+  # config.policy_datadir = pathlib.Path('.policy_data')
   # config.expert_datadir = pathlib.Path('.expert')
 
-  config.logdir = pathlib.Path('.logdir')
-  config.model_datadir = pathlib.Path('.model_data')
-  config.policy_datadir = pathlib.Path('.policy_data')
-  config.expert_datadir = pathlib.Path('.expert')
   config.seed = 0
   config.steps = 5e5
   config.eval_every = 1000
@@ -52,10 +54,10 @@ def define_config():
   config.precision = 32
   # Environment.
   # config.task = 'dmc_walker_walk'
-  config.task = 'robosuite_Lift_pickplace'
+  config.task = 'robosuite_Lift_pick'
   config.envs = 1
   config.parallel = 'none'
-  config.action_repeat = 2
+  config.action_repeat = 1
   config.time_limit = 1000
   config.prefill = 1000
   config.eval_noise = 0.0
@@ -90,7 +92,7 @@ def define_config():
   # Behavior.
   config.discount = 0.99
   config.disclam = 0.95
-  config.horizon = 15
+  config.horizon = 1000
   config.action_dist = 'tanh_normal'
   config.action_init_std = 5.0
   config.expl = 'additive_gaussian'
@@ -101,7 +103,6 @@ def define_config():
 
 
 class VMAIL(tools.Module):
-
   def __init__(self, config, model_datadir, policy_datadir, expert_datadir, actspace, writer):
     self._c = config
     self._actspace = actspace
@@ -119,9 +120,9 @@ class VMAIL(tools.Module):
     self._metrics['expl_amount']  # Create variable for checkpoint.
     self._float = prec.global_policy().compute_dtype
     self._strategy = tf.distribute.MirroredStrategy()
-    
     with self._strategy.scope():
-      self._model_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(model_datadir, self._c)))
+      self._model_dataset = iter(self._strategy.experimental_distribute_dataset(
+          load_dataset(model_datadir, self._c)))
       self._expert_dataset = iter(self._strategy.experimental_distribute_dataset(
           load_dataset(expert_datadir, self._c)))
       self._build_model()
@@ -136,7 +137,6 @@ class VMAIL(tools.Module):
       log = self._should_log(step)
       n = self._c.pretrain if self._should_pretrain() else self._c.train_steps
       print(f'Training for {n} steps.')
-      # pdb.set_trace()
       with self._strategy.scope():
         for train_step in range(n):
           log_images = self._c.log_images and log and train_step == 0
@@ -178,7 +178,6 @@ class VMAIL(tools.Module):
   def _train(self, model_data, expert_data, log_images):
     with tf.GradientTape() as model_tape:
       embed = self._encode(model_data)
-      # print("stage--5:", embed.shape, model_data['action'].shape)
       post, prior = self._dynamics.observe(embed, model_data['action'])
       feat = self._dynamics.get_feat(post)
       image_pred = self._decode(feat)
@@ -200,7 +199,6 @@ class VMAIL(tools.Module):
       imag_feat, actions = self._imagine_ahead(post)
       
       embed_expert = self._encode(expert_data)
-      # print("stage--6:", embed_expert.shape, expert_data['action'].shape)
       post_expert, prior_expert = self._dynamics.observe(embed_expert, expert_data['action'])
       feat_expert = self._dynamics.get_feat(post_expert)
      
@@ -222,7 +220,7 @@ class VMAIL(tools.Module):
           inner_dsicriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), dsicriminator_variables)
           inner_discriminator_norm = tf.linalg.global_norm(inner_dsicriminator_grads)
           grad_penalty = (inner_discriminator_norm - 1)**2
-
+          
       discriminator_loss = -(expert_loss + policy_loss) + self._c.alpha * grad_penalty
       discriminator_loss /= float(self._strategy.num_replicas_in_sync)
 
@@ -280,7 +278,6 @@ class VMAIL(tools.Module):
           (), 3, self._c.num_units, 'binary', act=act)
     self._discriminator = models.DenseDecoder((), 2, self._c.num_units, 'binary', act=act)
     self._value = models.DenseDecoder((), 3, self._c.num_units, act=act)
-    # print("stage--8:", self._actdim)
     self._actor = models.ActionDecoder(
         self._actdim, 4, self._c.num_units, self._c.action_dist,
         init_std=self._c.action_init_std, act=act)
@@ -324,14 +321,13 @@ class VMAIL(tools.Module):
     flatten = lambda x: tf.reshape(x, [-1] + list(x.shape[2:]))
     start = {k: flatten(v) for k, v in post.items()}
     policy = lambda state: self._actor(
-        tf.stop_gradient(self._dynamics.get_feat(state))).sample()
+        tf.stop_gradient(self._dynamics.get_feat(state))).sample()    
     last = start
     outputs = [[] for _ in tf.nest.flatten(start)]
     [o.append(l) for o, l in zip(outputs, tf.nest.flatten(last))]
     actions = []
     for index in range(self._c.horizon):
       action = policy(last)
-      # print("stage-3:", last, action)
       last = self._dynamics.img_step(last, action)
       [o.append(l) for o, l in zip(outputs, tf.nest.flatten(last))]
       actions.append(action)
@@ -409,13 +405,19 @@ def preprocess(obs, config):
         obs[k] = tf.cast(v, dtype)
   return obs
 
+
 def count_steps(datadir, config):
   return tools.count_episodes(datadir)[1] * config.action_repeat
 
+
 def load_dataset(directory, config):
-  # print("Inside load_dataset")
   episode = next(tools.load_episodes(directory, 1))
+  for k, v in episode.items():
+    if v.dtype == 'float64':
+      episode[k] = v.astype('float32')
+  
   types = {k: v.dtype for k, v in episode.items()}
+  # print("Types:", types)
   shapes = {k: (None,) + v.shape[1:] for k, v in episode.items()}
   generator = lambda: tools.load_episodes(
       directory, config.train_steps, config.batch_length,
@@ -424,7 +426,9 @@ def load_dataset(directory, config):
   dataset = dataset.batch(config.batch_size, drop_remainder=True)
   dataset = dataset.map(functools.partial(preprocess, config=config))
   dataset = dataset.prefetch(10)
+  print("Dataset:", dataset)
   return dataset
+
 
 def summarize_episode(episode, config, datadir, writer, prefix):
   episodes, steps = tools.count_episodes(datadir)
@@ -444,9 +448,9 @@ def summarize_episode(episode, config, datadir, writer, prefix):
     if prefix == 'test':
       tools.video_summary(f'sim/{prefix}/video', episode['agentview_image'][None])
 
+
 def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
   suite, task = config.task.split('_', 1)
-  print("Suite, Task - ", suite, task)
   if suite == 'dmc':
     env = wrappers.DeepMindControl(task)
     env = wrappers.ActionRepeat(env, config.action_repeat)
@@ -457,14 +461,9 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
         life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
   elif suite == 'robosuite':
-    import robosuite as suite
-    from robosuite.wrappers import GymWrapper
-    from robosuite.controllers import load_controller_config
-
-    env = wrappers.RobosuiteTask(task)
+    env = wrappers.RobosuiteTask(task, horizon=config.horizon)
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
-    # print("robosuite action space:", env.action_space)
   else:
     raise NotImplementedError(suite)
   env = wrappers.TimeLimit(env, config.time_limit / config.action_repeat)
@@ -482,11 +481,10 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
 def main(config):
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   if device.type == 'cuda':
-    # torch.set_default_tensor_type('torch.cuda.FloatTensor')
     print("Number of GPU devices:", torch.cuda.device_count())
     print("GPU device name:", torch.cuda.get_device_name(0))
-    print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
-    print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
+    # print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
+    # print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
   else:
     print("Device:", device)
 
@@ -504,7 +502,7 @@ def main(config):
   config.expert_datadir.mkdir(parents=True, exist_ok=True)
   from distutils.dir_util import copy_tree
   copy_tree(str(config.expert_datadir), str(config.model_datadir))
-  print('Logdir', config.logdir)
+  # print('Logdir', config.logdir)
 
   # Create environments.
   model_datadir = config.model_datadir
@@ -520,7 +518,6 @@ def main(config):
       config, writer, 'test', model_datadir, policy_datadir, store=False), config.parallel)
       for _ in range(config.envs)]
   actspace = train_envs[0].action_space
-  # print("stage--9:", actspace)
 
   # Prefill dataset with random episodes.
   step = count_steps(model_datadir, config)
@@ -534,24 +531,23 @@ def main(config):
   step = count_steps(policy_datadir, config)
   print(f'Simulating agent for {config.steps-step} steps.')
   agent = VMAIL(config, model_datadir, policy_datadir, expert_datadir, actspace, writer)
+
   if (config.logdir / 'variables.pkl').exists():
     print('Load checkpoint.')
     agent.load(config.logdir / 'variables.pkl')
+
   state = None
-  count = 0
+  print("Starting Training...")
   while step < config.steps:
     print('{}/{}, Start evaluation.'.format(step, config.steps))
-    temp = functools.partial(agent, training=False)
-    tools.simulate(temp, test_envs, episodes=1)
+    tools.simulate(
+        functools.partial(agent, training=False), test_envs, episodes=1)
     writer.flush()
-    print('Start collection.', count)
-    # pdb.set_trace()
+    print('Start collection.')
     steps = config.eval_every // config.action_repeat
     state = tools.simulate(agent, train_envs, steps, state=state)
     step = count_steps(policy_datadir, config)
     agent.save(config.logdir / 'variables.pkl')
-    count += 1
-  
   for env in train_envs + test_envs:
     env.close()
 
