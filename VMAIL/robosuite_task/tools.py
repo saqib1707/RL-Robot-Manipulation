@@ -160,6 +160,7 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
   random = np.random.RandomState(seed)
   cache = {}
   removed_keys = ['robot0_touch', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_touch-state', 'object-state']
+  
   while True:
     for filename in directory.glob('*.npz'):
       if filename not in cache:
@@ -168,9 +169,7 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
             raw_episode = np.load(f)
             episode = {}
             for k, v in raw_episode.items():
-              if k in removed_keys:
-                pass
-              else:
+              if k not in removed_keys:
                 episode[k] = v
             # episode = {k: episode[k] for k in episode.keys()}
         except Exception as e:

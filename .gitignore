@@ -13,7 +13,6 @@ gym/
 LAPAL/
 robomimic/
 .mujoco/
-VMAIL/expert_data/
 runs/
 
 # Byte-compiled / optimized / DLL files

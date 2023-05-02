@@ -12,7 +12,7 @@ from tqdm import tqdm
 import pdb
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-# os.environ['MUJOCO_GL'] = 'egl'
+os.environ['MUJOCO_GL'] = 'egl'
 
 import numpy as np
 import torch

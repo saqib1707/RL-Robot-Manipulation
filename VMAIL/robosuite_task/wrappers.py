@@ -36,12 +36,12 @@ class RobosuiteTask:
           camera_heights=size[0], 
           camera_widths=size[1], 
       )
+      self._removed_keys = ['gripper_to_cube_pos', 'object-state']
 
   @property
   def observation_space(self):
     spaces = {}
-    # print("Observation space keys:", self._env.observation_spec().keys())
-    # print("Inside observation space:", self._env.observation_spec)
+    # print("Observation space keys:", self._env.observation_spec.keys())
     for key, value in self._env.observation_spec().items():
       spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
     
@@ -51,18 +51,21 @@ class RobosuiteTask:
 
   @property
   def action_space(self):
+    # print("Inside action_space:")
     spec = self._env.action_spec
     shp = spec[0].shape
     return gym.spaces.Box(spec[0].min(), spec[1].max(), (shp[0],), dtype=np.float32)
 
   def step(self, action):
     next_obs, reward, done, info = self._env.step(action)
+    # print("Inside step:", next_obs.keys())
     # next_obs['image'] = next_obs['agentview_image'].copy()
     reward = reward or 0
     return next_obs, reward, done, info
 
   def reset(self):
     obs = self._env.reset()
+    # print("Inside reset", obs.keys())
     # obs['image'] = np.copy(obs['agentview_image'])
     return obs
 
