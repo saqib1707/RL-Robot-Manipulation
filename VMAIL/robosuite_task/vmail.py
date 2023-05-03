@@ -57,7 +57,7 @@ def define_config():
   config.task = 'robosuite_Lift_pick'
   config.envs = 1
   config.parallel = 'none'
-  config.action_repeat = 1
+  config.action_repeat = 2
   config.time_limit = 1000
   config.prefill = 1000
   config.eval_noise = 0.0
@@ -92,7 +92,7 @@ def define_config():
   # Behavior.
   config.discount = 0.99
   config.disclam = 0.95
-  config.horizon = 1000
+  config.horizon = 15
   config.action_dist = 'tanh_normal'
   config.action_init_std = 5.0
   config.expl = 'additive_gaussian'
@@ -426,7 +426,7 @@ def load_dataset(directory, config):
   dataset = dataset.batch(config.batch_size, drop_remainder=True)
   dataset = dataset.map(functools.partial(preprocess, config=config))
   dataset = dataset.prefetch(10)
-  print("Dataset:", dataset)
+  # print("Dataset:", dataset)
   return dataset
 
 
@@ -461,7 +461,7 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
         life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
   elif suite == 'robosuite':
-    env = wrappers.RobosuiteTask(task, horizon=config.horizon)
+    env = wrappers.RobosuiteTask(task)
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
   else:
@@ -483,8 +483,8 @@ def main(config):
   if device.type == 'cuda':
     print("Number of GPU devices:", torch.cuda.device_count())
     print("GPU device name:", torch.cuda.get_device_name(0))
-    # print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
-    # print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
+    print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
+    print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
   else:
     print("Device:", device)
 
@@ -502,7 +502,6 @@ def main(config):
   config.expert_datadir.mkdir(parents=True, exist_ok=True)
   from distutils.dir_util import copy_tree
   copy_tree(str(config.expert_datadir), str(config.model_datadir))
-  # print('Logdir', config.logdir)
 
   # Create environments.
   model_datadir = config.model_datadir

@@ -31,7 +31,7 @@ class Module(tf.Module):
   def load(self, filename):
     with pathlib.Path(filename).open('rb') as f:
       values = pickle.load(f)
-    # tf.nest.map_structure(lambda x, y: x.assign(y), self.variables, values)
+    tf.nest.map_structure(lambda x, y: x.assign(y), self.variables, values)
 
   def get(self, name, ctor, *args, **kwargs):
     # Create or get layer by name to avoid mentioning it in the constructor.
