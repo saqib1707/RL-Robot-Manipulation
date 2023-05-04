@@ -29,10 +29,11 @@ env_name = "Lift"
 #     controller_config = json.load(f)
 
 # load default controller parameters for Operational Space Control (OSC)
-controller_config = load_controller_config(default_controller="OSC_POSE")
-# controller_config = None
-train_camera_names = "agentview"
-horizon = 1000
+# controller_config = load_controller_config(default_controller="OSC_POSE")
+controller_config = None
+# train_camera_names = ["agentview", "frontview"]
+train_camera_names = "robot0_eye_in_hand"
+horizon = 400
 
 # create an environment to visualize on-screen
 env = suite.make(
@@ -47,10 +48,12 @@ env = suite.make(
     has_offscreen_renderer=True,              # no off-screen rendering
     control_freq=20,                    
     horizon=horizon,               # each episode terminates after 200 steps
-    use_object_obs=True,     # no observations needed
+    use_object_obs=False,     # no observations needed
     use_camera_obs=True,     # don't provide camera/image observations to agent
+    camera_depths=True,
     camera_names=train_camera_names, 
 )
+print(env.camera_names)
 print("Robot type:", env.robots[0], len(env.robots))
 print("Environment created")
 
@@ -60,7 +63,7 @@ obs = env.reset()
 for k, v in obs.items():
     print(k, v.shape)
 
-print(obs['object-state'])
+# print(obs['object-state'])
 # print(obs["frontview_image"].shape)
 
 # env2 = GymWrapper(env)
@@ -78,55 +81,26 @@ print(obs['object-state'])
 # camera.set_quat([0.56, 0.43, 0.43, 0.56])
 
 
-'''
-def get_policy_action(obs):
-    low, high = env.action_spec
-    action = np.random.uniform(low, high)
-    return action
+# def get_policy_action(obs):
+#     low, high = env.action_spec
+#     action = np.random.uniform(low, high)
+#     return action
 
+'''
 low, high = env.action_spec
 action_lst = []
 for _ in range(horizon):
     action_lst.append(np.random.uniform(low, high))
 
-frames = []
-# frames2 = []
+# frames = []
 
-# reset the environment to prepare for a rollout
-obs = env.reset()
-frame = np.flip(obs[train_camera_names+"_image"], axis=0)
-frames.append(frame)
-# plt.imsave("images/testview.png", frame)
+# # reset the environment to prepare for a rollout
+# obs = env.reset()
+# frame = np.flip(obs[train_camera_names+"_image"], axis=0)
+# frames.append(frame)
+# # plt.imsave("images/testview.png", frame)
 
-# import ipdb; ipdb.set_trace()
-done = False
-ret = 0.
-
-i = 0
-start_time = time.time()
-while not done:
-    # action = get_policy_action(obs)         # use observation to decide on an action
-    action = action_lst[i]
-    # print(action)
-    obs, reward, done, _ = env.step(action) # play action
-    ret += reward
-    frame = np.flip(obs[train_camera_names+"_image"], axis=0)
-    frames.append(frame)
-    i += 1
-
-print("rollout completed with return {}".format(ret))
-print(f"Spend {time.time() - start_time:.3f} s to run 1000 steps")
-
-path = "images/testvideo.mp4"
-imageio.mimsave(path, frames, fps=30)
-
-# ----------------------------------------------------------------------------------------
-# obs = env2.reset()
-# # print(next_obs[:256*256*3].min(), next_obs[:256*256*3].max(), next_obs[256*256*3:].min(), next_obs[256*256*3:].max())
-# obs = np.flip(obs[:256*256*3].reshape(256, 256, 3), axis=0)
-# obs = obs.astype(np.uint8)
-# frames2.append(obs)
-
+# # import ipdb; ipdb.set_trace()
 # done = False
 # ret = 0.
 
@@ -136,25 +110,73 @@ imageio.mimsave(path, frames, fps=30)
 #     # action = get_policy_action(obs)         # use observation to decide on an action
 #     action = action_lst[i]
 #     # print(action)
-#     obs, reward, done, _ = env2.step(action) # play action
+#     obs, reward, done, _ = env.step(action) # play action
 #     ret += reward
-#     obs = np.flip(obs[:256*256*3].reshape(256, 256, 3), axis=0)
-#     obs = obs.astype(np.uint8)
-#     frames2.append(obs)
+#     frame = np.flip(obs[train_camera_names+"_image"], axis=0)
+#     frames.append(frame)
 #     i += 1
 
 # print("rollout completed with return {}".format(ret))
 # print(f"Spend {time.time() - start_time:.3f} s to run 1000 steps")
 
-# path = "images/testvideo2.mp4"
-# imageio.mimsave(path, frames2, fps=30)
+# path = "images/testvideo.mp4"
+# imageio.mimsave(path, frames, fps=30)
 
-# # find the difference between the two set of frames
+# ----------------------------------------------------------------------------------------
+frames1 = []
+frames2 = []
+obs = env2.reset()
+print(obs[:256*256*3].min(), obs[:256*256*3].max(), obs[256*256*3:256*256*3*2].min(), obs[256*256*3:256*256*3*2].max(), obs[256*256*3*2:].min(), obs[256*256*3*2:].max())
+print(obs.shape)
+obs1 = np.flip(obs[:256*256*3].reshape(256, 256, 3), axis=0)
+obs1 = obs1.astype(np.uint8)
+frames1.append(obs1)
+
+obs2 = np.flip(obs[256*256*3:256*256*3*2].reshape(256, 256, 3), axis=0)
+obs2 = obs2.astype(np.uint8)
+frames2.append(obs2)
+
+
+done = False
+ret = 0.
+i = 0
+start_time = time.time()
+while not done:
+    # action = get_policy_action(obs)         # use observation to decide on an action
+    action = action_lst[i]
+    # print(action)
+    obs, reward, done, _ = env2.step(action) # play action
+    ret += reward
+    
+    obs1 = np.flip(obs[:256*256*3].reshape(256, 256, 3), axis=0)
+    obs1 = obs1.astype(np.uint8)
+    frames1.append(obs1)
+
+    if i > 200:
+        obs2 = np.flip(obs[256*256*3:256*256*3*2].reshape(256, 256, 3), axis=0)
+        obs2 = obs2.astype(np.uint8)
+        frames2.append(obs2)
+    else:
+        obs2 = obs[256*256*3:256*256*3*2].reshape(256, 256, 3)
+        obs2 = obs2.astype(np.uint8)
+        frames2.append(obs2)
+    i += 1
+
+print("rollout completed with return {}".format(ret))
+print(f"Spend {time.time() - start_time:.3f} s to run 1000 steps")
+
+path = "images/view1.mp4"
+imageio.mimsave(path, frames1, fps=90)
+
+path = "images/view2.mp4"
+imageio.mimsave(path, frames2, fps=90)
+
+# find the difference between the two set of frames
 # for i in range(horizon):
 #     err = np.linalg.norm(frames[i] - frames2[i])
 #     print(err)
 #     assert(err < 1e-10)
 
-'''
 env.close()
-# env2.close()
+env2.close()
+'''

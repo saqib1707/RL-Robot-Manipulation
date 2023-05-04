@@ -33,13 +33,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # environment
     parser.add_argument('--domain_name', default="Lift", type=str)
-    parser.add_argument('--robots', default=["Panda"])
+    parser.add_argument('--robots', default="Panda", type=str, nargs='+')
     parser.add_argument('--controller', default="", type=str)
     parser.add_argument('--image_size', default=84, type=int)
     parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--frame_stack', default=3, type=int)
-    parser.add_argument('--train_camera_names', default=["robot0_eye_in_hand"], help="Cameras used to generate views for training")
-    parser.add_argument('--render_camera_names', default=["frontview"], help="Names of camera to render")
+    parser.add_argument('--train_camera_names', default="agentview", type=str, nargs='+', help="Cameras used to generate views for training")
+    parser.add_argument('--render_camera_names', default="frontview", type=str, nargs='+', help="Names of camera to render")
     parser.add_argument('--horizon', type=int, default=1000, help="every episode lasts for exactly horizon timesteps")
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
@@ -160,8 +160,8 @@ def make_agent(obs_shape, action_shape, args, device):
 
 def print_env_info(env):
     print("Env Name:", env.name)
-    print("Env horizon steps:", env.horizon)
-    print("Camera size:", env.camera_heights[0], env.camera_widths[0])
+    print("Env horizon:", env.horizon)
+    print("Camera resolution:", env.camera_heights[0], env.camera_widths[0])
     print("Observation space:", env.observation_space.shape, env.observation_space.low.min(), env.observation_space.high.max(), np.array(env.observation_space.low).shape, np.array(env.observation_space.high).shape)
     print("Action space:", env.action_space.shape, env.action_space.low.min(), env.action_space.high.max(), np.array(env.action_space.low).shape, np.array(env.action_space.high).shape, "\n")
 
@@ -205,6 +205,7 @@ def main():
         camera_widths=args.image_size, 
     )
     print("Robosuite env created !!!")
+    num_cameras = len(env.camera_names)
 
     env = GymWrapper(env)
     print_env_info(env)
@@ -212,7 +213,7 @@ def main():
 
     # stack several consecutive frames together
     if args.encoder_type == 'pixel':
-        env = utils.FrameStack(env, num_frames=args.frame_stack, img_shape=(env.camera_heights[0], env.camera_widths[0], 3), action_repeat=args.action_repeat)
+        env = utils.FrameStack(env, num_frames=args.frame_stack, img_shape=(env.camera_heights[0], env.camera_widths[0], 3), action_repeat=args.action_repeat, num_cameras=num_cameras)
         print("Frames stacked !!!")
     print_env_info(env)
 
@@ -245,7 +246,7 @@ def main():
     assert env.action_space.high.max() <= 1
 
     print("Creating replay buffer...")
-    num_ch = 3 if args.reduce_rb_size == True else 3 * args.frame_stack
+    num_ch = 3 * num_cameras if args.reduce_rb_size == True else 3 * args.frame_stack * num_cameras
     replay_buffer = utils.ReplayBuffer(
         obs_shape=(num_ch, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
         action_shape=env.action_space.shape,
@@ -257,13 +258,12 @@ def main():
     print("Replay buffer created !!!")
 
     if args.load_saved_logdir != "":
-        print(buffer_dir)
         replay_buffer.load(buffer_dir)
         print("Replay buffer loaded")
 
     print("Creating Agent...")
     agent = make_agent(
-        obs_shape=(3 * args.frame_stack, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
+        obs_shape=(3 * args.frame_stack * num_cameras, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
         action_shape=env.action_space.shape,
         args=args,
         device=device

@@ -152,21 +152,23 @@ class ReplayBuffer(object):
 
 
 class FrameStack(gym.Wrapper):
-    def __init__(self, env, num_frames, img_shape, action_repeat):
+    def __init__(self, env, num_frames, img_shape, action_repeat, num_cameras):
         gym.Wrapper.__init__(self, env)
         self._num_frames = num_frames
         self._action_repeat = action_repeat
+        self._num_cameras = num_cameras
+        assert(1 <= self._num_cameras <= 2)
         self._frames = deque([], maxlen=num_frames)
         # self._max_episode_steps = env._max_episode_steps
         self._max_episode_steps = (env.horizon - action_repeat + 1) // action_repeat
 
         if img_shape is not None:
-            self._img_height, self._img_width, self._img_channels = img_shape
-            self.cam_obs_dim = img_shape[0] * img_shape[1] * img_shape[2]
+            self._img_height, self._img_width, self._img_channel = img_shape
+            self._img_dim = img_shape[0] * img_shape[1] * img_shape[2]
             self.observation_space = gym.spaces.Box(
                 low=0,
                 high=1,
-                shape=(img_shape[2] * num_frames, img_shape[0], img_shape[1]),
+                shape=(self._num_cameras * self._img_channel * self._num_frames, self._img_height, self._img_width),
                 dtype=env.observation_space.dtype
             )
         else:
@@ -179,12 +181,19 @@ class FrameStack(gym.Wrapper):
             )
 
     def get_observation(self, obs):
-        # print("Stage:", obs.shape, obs[:self.cam_obs_dim].min(), obs[:self.cam_obs_dim].max(), obs[self.cam_obs_dim:].min(), obs[self.cam_obs_dim:].max())
-        if self.cam_obs_dim > 0:
-            obs = np.flip(obs[:self.cam_obs_dim].reshape(self._img_height, self._img_width, self._img_channels), axis=0)
-            obs = obs.astype(np.uint8)
-            # plt.imsave('images/test1.png', obs)
-            obs = np.transpose(obs, (2,0,1))
+        # print("Stage:", obs.shape, obs[:self._img_dim].min(), obs[:self._img_dim].max(), obs[self._img_dim:].min(), obs[self._img_dim:].max())
+        if self._img_dim > 0:
+            if self._num_cameras == 1: 
+                obs = np.flip(obs[:self._img_dim].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
+                obs = obs.astype(np.uint8)
+                # plt.imsave('images/test1.png', obs)
+                obs = np.transpose(obs, (2,0,1))
+            elif self._num_cameras == 2:
+                obs1 = np.flip(obs[:self._img_dim].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
+                obs2 = np.flip(obs[self._img_dim:self._img_dim*2].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
+                obs = np.concatenate([obs1, obs2], axis=2)
+                obs = obs.astype(np.uint8)
+                obs = np.transpose(obs, (2,0,1))
         return obs
 
     def reset(self):
