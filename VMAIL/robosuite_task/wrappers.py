@@ -6,6 +6,7 @@ import traceback
 
 import gym
 import numpy as np
+import matplotlib.pyplot as plt
 from PIL import Image
 
 
@@ -36,7 +37,7 @@ class RobosuiteTask:
           camera_heights=size[0], 
           camera_widths=size[1], 
       )
-      self._removed_keys = ['gripper_to_cube_pos', 'object-state']
+      # self._removed_keys = ['gripper_to_cube_pos', 'object-state']
 
   @property
   def observation_space(self):
@@ -51,7 +52,6 @@ class RobosuiteTask:
 
   @property
   def action_space(self):
-    # print("Inside action_space:")
     spec = self._env.action_spec
     shp = spec[0].shape
     return gym.spaces.Box(spec[0].min(), spec[1].max(), (shp[0],), dtype=np.float32)
@@ -60,11 +60,12 @@ class RobosuiteTask:
     next_obs, reward, done, info = self._env.step(action)
     # print("Inside step:", next_obs.keys())
     # next_obs['image'] = next_obs['agentview_image'].copy()
-    reward = reward or 0
+    # reward = reward or 0
     return next_obs, reward, done, info
 
   def reset(self):
     obs = self._env.reset()
+    # plt.imsave('images/test.png', obs['agentview_image'])
     # print("Inside reset", obs.keys())
     # obs['image'] = np.copy(obs['agentview_image'])
     return obs
