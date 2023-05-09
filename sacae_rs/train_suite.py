@@ -23,7 +23,8 @@ from video import VideoRecorder
 from sac_ae import SacAeAgent
 
 import robosuite as suite
-from robosuite.wrappers import GymWrapper
+# from robosuite.wrappers import GymWrapper
+from gym_wrapper import GymWrapper
 from robosuite.controllers import load_controller_config
 
 utc_dt = datetime.now(timezone.utc).astimezone(pytz.timezone('US/Pacific'))
@@ -70,6 +71,7 @@ def parse_args():
     parser.add_argument('--actor_update_freq', default=2, type=int)
     # encoder/decoder
     parser.add_argument('--encoder_type', default='pixel', type=str)
+    parser.add_argument('--use_camera_depth', default=False, action='store_true')
     parser.add_argument('--encoder_feature_dim', default=50, type=int)
     parser.add_argument('--encoder_lr', default=1e-3, type=float)
     parser.add_argument('--encoder_tau', default=0.05, type=float)
@@ -112,7 +114,6 @@ def evaluate(env, agent, video, num_episodes, L, step, video_save_freq):
             with utils.eval_mode(agent):
                 action = agent.select_action(obs)
             obs, reward, done, _ = env.step(action)
-
             video.record(env, obs)
             episode_reward += reward
 
@@ -193,12 +194,13 @@ def main():
     env = suite.make(
         env_name=args.domain_name, 
         robots=args.robots, 
-        controller_configs=controller_config,
+        controller_configs=controller_config, 
         reward_shaping=True,          # if True, uses dense rewards else sparse 
         has_renderer=False, 
         has_offscreen_renderer=True, 
         use_camera_obs=(args.encoder_type == 'pixel'), 
         use_object_obs=False, 
+        camera_depths=args.use_camera_depths, 
         horizon=args.horizon, 
         camera_names=args.train_camera_names, 
         camera_heights=args.image_size, 
@@ -206,6 +208,7 @@ def main():
     )
     print("Robosuite env created !!!")
     num_cameras = len(env.camera_names)
+    num_channels = 4 if env.camera_depths[0] == True else 3
 
     env = GymWrapper(env)
     print_env_info(env)
@@ -213,7 +216,7 @@ def main():
 
     # stack several consecutive frames together
     if args.encoder_type == 'pixel':
-        env = utils.FrameStack(env, num_frames=args.frame_stack, img_shape=(env.camera_heights[0], env.camera_widths[0], 3), action_repeat=args.action_repeat, num_cameras=num_cameras)
+        env = utils.FrameStack(env, num_frames=args.frame_stack, img_shape=(env.camera_heights[0], env.camera_widths[0], num_channels), action_repeat=args.action_repeat, num_cameras=num_cameras)
         print("Frames stacked !!!")
     print_env_info(env)
 
@@ -246,7 +249,7 @@ def main():
     assert env.action_space.high.max() <= 1
 
     print("Creating replay buffer...")
-    num_ch = 3 * num_cameras if args.reduce_rb_size == True else 3 * args.frame_stack * num_cameras
+    num_ch = num_channels * num_cameras if args.reduce_rb_size == True else num_channels * args.frame_stack * num_cameras
     replay_buffer = utils.ReplayBuffer(
         obs_shape=(num_ch, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
         action_shape=env.action_space.shape,
@@ -263,7 +266,7 @@ def main():
 
     print("Creating Agent...")
     agent = make_agent(
-        obs_shape=(3 * args.frame_stack * num_cameras, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
+        obs_shape=(num_channels * args.frame_stack * num_cameras, env.camera_heights[0], env.camera_widths[0]) if args.encoder_type == 'pixel' else env.observation_space.shape,
         action_shape=env.action_space.shape,
         args=args,
         device=device
@@ -311,7 +314,7 @@ def main():
                 
                 if args.save_model:
                     agent.save(model_dir, itr)
-                    print("Saved model and tb!!!")
+                    print("Saved model and tensorboard data!!!")
 
                 if args.save_buffer:
                     replay_buffer.save(buffer_dir)
@@ -329,10 +332,12 @@ def main():
         # sample action for data collection
         if itr < args.init_steps:
             action = env.action_space.sample()
-        elif(itr >= args.init_steps):
+        else:
             with utils.eval_mode(agent):
                 action = agent.sample_action(obs)
-            # run training update
+        
+        # run training update
+        if itr >= args.init_steps:
             num_updates = args.init_steps if itr == args.init_steps else 1
             for _ in range(num_updates):
                 agent.update(replay_buffer, L, itr)

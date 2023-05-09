@@ -9,11 +9,14 @@ python3 train_suite.py \
 --num_layers=4 \
 --frame_stack=3 \
 --action_repeat=1 \
---horizon=100 \
+--horizon=250 \
 --init_steps=1000 \
 --eval_freq=50000 \
---num_eval_episodes=2 \
+--num_eval_episodes=1 \
 --video_save_freq=100000 \
---work_dir='./logdir/' \
---train_camera_names "frontview" \
---render_camera_names "frontview"
+--work_dir='./logtemp/' \
+--train_camera_names "robot0_eye_in_hand" "agentview" \
+--render_camera_names "frontview" \
+--replay_buffer_capacity=1000001 \
+--num_train_steps=1000001 \
+--use_camera_depth

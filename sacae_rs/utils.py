@@ -107,7 +107,6 @@ class ReplayBuffer(object):
             idxs = np.random.randint(low, high, size=self.batch_size)
             idxs3 = np.max(0, np.vstack([idxs-2, idxs-1, idxs]).T.flatten())
             idxs4 = np.max(0, np.vstack([idxs-1, idxs, idxs+1]).T.flatten())
-
             obses = torch.as_tensor(self.obses[idxs3].reshape((-1, 3*self.frame_stack, *self.obs_shape[-2:])), device=self.device).float()
             next_obses = torch.as_tensor(self.next_obses[idxs3].reshape((-1, 3*self.frame_stack, *self.obs_shape[-2:])), device=self.device).float()
         else:
@@ -159,12 +158,12 @@ class FrameStack(gym.Wrapper):
         self._num_cameras = num_cameras
         assert(1 <= self._num_cameras <= 2)
         self._frames = deque([], maxlen=num_frames)
-        # self._max_episode_steps = env._max_episode_steps
         self._max_episode_steps = (env.horizon - action_repeat + 1) // action_repeat
 
         if img_shape is not None:
             self._img_height, self._img_width, self._img_channel = img_shape
-            self._img_dim = img_shape[0] * img_shape[1] * img_shape[2]
+            self._rgb_dim = self._img_height * self._img_width * 3
+            self._depth_dim = self._img_height * self._img_width if self._img_channel == 4 else 0
             self.observation_space = gym.spaces.Box(
                 low=0,
                 high=1,
@@ -176,22 +175,28 @@ class FrameStack(gym.Wrapper):
             self.observation_space = gym.spaces.Box(
                 low=0,
                 high=1,
-                shape=((shp[0] * num_frames,) + shp[1:]),
+                shape=((shp[0] * self._num_frames,) + shp[1:]),
                 dtype=env.observation_space.dtype
             )
 
     def get_observation(self, obs):
-        # print("Stage:", obs.shape, obs[:self._img_dim].min(), obs[:self._img_dim].max(), obs[self._img_dim:].min(), obs[self._img_dim:].max())
-        if self._img_dim > 0:
-            if self._num_cameras == 1: 
-                obs = np.flip(obs[:self._img_dim].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
-                obs = obs.astype(np.uint8)
-                # plt.imsave('images/test1.png', obs)
+        if self._rgb_dim > 0:
+            if self._num_cameras == 1:
+                rgb_obs = np.flip(obs[:self._rgb_dim].reshape(self._img_height, self._img_width, 3), axis=0)
+                if self._depth_dim > 0:
+                    depth_obs = np.flip(obs[self._rgb_dim:self._rgb_dim+self._depth_dim].reshape(self._img_height, self._img_width, 1), axis=0) * 255.0
+                    rgb_obs = np.concatenate([rgb_obs, depth_obs], axis=2)
+                obs = rgb_obs.astype(np.uint8)
                 obs = np.transpose(obs, (2,0,1))
             elif self._num_cameras == 2:
-                obs1 = np.flip(obs[:self._img_dim].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
-                obs2 = np.flip(obs[self._img_dim:self._img_dim*2].reshape(self._img_height, self._img_width, self._img_channel), axis=0)
-                obs = np.concatenate([obs1, obs2], axis=2)
+                rgb_obs1 = np.flip(obs[:self._rgb_dim].reshape(self._img_height, self._img_width, 3), axis=0)
+                rgb_obs2 = np.flip(obs[self._rgb_dim:self._rgb_dim*2].reshape(self._img_height, self._img_width, 3), axis=0)
+                if self._depth_dim > 0:
+                    depth_obs1 = np.flip(obs[self._rgb_dim*2:self._rgb_dim*2+self._depth_dim].reshape(self._img_height, self._img_width, 1), axis=0) * 255.0
+                    depth_obs2 = np.flip(obs[self._rgb_dim*2+self._depth_dim:self._rgb_dim*2+self._depth_dim*2].reshape(self._img_height, self._img_width, 1), axis=0) * 255.0
+                    rgb_obs1 = np.concatenate([rgb_obs1, depth_obs1], axis=2)
+                    rgb_obs2 = np.concatenate([rgb_obs2, depth_obs2], axis=2)
+                obs = np.concatenate([rgb_obs1, rgb_obs2], axis=2)
                 obs = obs.astype(np.uint8)
                 obs = np.transpose(obs, (2,0,1))
         return obs
@@ -204,14 +209,15 @@ class FrameStack(gym.Wrapper):
         return self._get_obs()
 
     def step(self, action):
-        reward = 0
-        for _ in range(self._action_repeat):    
-            obs, rd, done, info = self.env.step(action)
-            reward += rd
-            if done:
-                break
+        # reward = 0
+        # for _ in range(self._action_repeat):    
+        #     obs, rd, done, info = self.env.step(action)
+        #     reward += rd
+        #     if done:
+        #         break
+
+        obs, reward, done, info = self.env.step(action)
         obs = self.get_observation(obs)
-        # print("stage-step:", obs.shape, np.max(obs), np.min(obs), reward)
         self._frames.append(obs)
         return self._get_obs(), reward, done, info
 

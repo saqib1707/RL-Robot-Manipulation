@@ -9,7 +9,7 @@ from PIL import Image
 
 
 class VideoRecorder(object):
-    def __init__(self, dir_name, height=256, width=256, render_camera_names=["frontview"], fps=30):
+    def __init__(self, dir_name, height=256, width=256, render_camera_names="frontview", fps=30):
         self.dir_name = dir_name
         self.height = height
         self.width = width
