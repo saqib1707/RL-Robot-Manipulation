@@ -10,7 +10,4 @@ cd dmc2gym/
 pip3 install -e ./
 cd ../
 apt-get install -y ffmpeg
-# deactivate
-# source ~/.bashrc
-# source /home/envs/rlenv/bin/activate
 python3 /home/envs/rlenv/lib/python3.8/site-packages/robosuite/scripts/setup_macros.py

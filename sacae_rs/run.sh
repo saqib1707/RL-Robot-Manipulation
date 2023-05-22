@@ -14,8 +14,8 @@ python3 train_suite.py \
 --eval_freq=50000 \
 --num_eval_episodes=1 \
 --video_save_freq=100000 \
---work_dir='./logtemp/' \
---train_camera_names "robot0_eye_in_hand" "agentview" \
+--work_dir='./logdir/' \
+--train_camera_names "robot0_eye_in_hand" \
 --render_camera_names "frontview" \
 --replay_buffer_capacity=1000001 \
 --num_train_steps=1000001 \

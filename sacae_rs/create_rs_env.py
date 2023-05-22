@@ -20,8 +20,8 @@ if device.type == 'cuda':
     # torch.set_default_tensor_type('torch.cuda.FloatTensor')
     print("Number of GPU devices:", torch.cuda.device_count())
     print("GPU device name:", torch.cuda.get_device_name(0))
-    print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
-    print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
+    # print('Allocated memory:', round(torch.cuda.memory_allocated(0)/1024**3, 3), 'GB')
+    # print('Cached memory:   ', round(torch.cuda.memory_reserved(0)/1024**3, 3), 'GB')
 else:
     print("Device:", device)
 
@@ -30,16 +30,19 @@ env_name = "Lift"
 #     controller_config = json.load(f)
 
 # load default controller parameters for Operational Space Control (OSC)
-# controller_config = load_controller_config(default_controller="OSC_POSE")
-controller_config = None
+controller_config = load_controller_config(default_controller="OSC_POSE")
+# controller_config = None
 train_camera_names = ["agentview", "robot0_eye_in_hand"]
 horizon = 250
 image_size = 84
+use_camera_depth = False
+use_tactile_obs = False
+use_touch_obs = True
 
 # create an environment to visualize on-screen
 env = suite.make(
     env_name=env_name,
-    robots=["Panda"],                # load a Sawyer robot and a Panda robot
+    robots="Panda",                # load a Sawyer robot and a Panda robot
     gripper_types="default",         # use default grippers for robot arm
     controller_configs=controller_config,      # each arm is controlled using OSC
     # env_configuration="single-arm-opposed",    # arms face each other
@@ -48,14 +51,17 @@ env = suite.make(
     # render_camera="frontview",                 # visualize the frontview camera
     has_offscreen_renderer=True,              # no off-screen rendering
     control_freq=20,                    
-    horizon=horizon,               # each episode terminates after 200 steps
-    use_object_obs=False,     # no observations needed
-    use_camera_obs=True,     # don't provide camera/image observations to agent
-    camera_depths=True,
+    horizon=horizon,             # each episode terminates after 200 steps
+    use_object_obs=False,        # no observations needed
+    use_camera_obs=True,         # don't provide camera/image observations to agent
+    camera_depths=use_camera_depth,
     camera_heights=image_size, 
     camera_widths=image_size, 
     camera_names=train_camera_names, 
+    use_tactile_obs=use_tactile_obs,
+    use_touch_obs=use_touch_obs
 )
+
 print(env.camera_names)
 print("Robot type:", env.robots[0], len(env.robots))
 print("Environment created")

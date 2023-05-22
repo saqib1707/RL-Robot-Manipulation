@@ -18,7 +18,6 @@ class PixelEncoder(nn.Module):
         super().__init__()
 
         assert len(obs_shape) == 3   # (9,84,84)
-        print("Obs shape inside encoder:", obs_shape)
 
         self.feature_dim = feature_dim
         self.num_layers = num_layers

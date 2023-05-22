@@ -200,7 +200,7 @@ def main():
         has_offscreen_renderer=True, 
         use_camera_obs=(args.encoder_type == 'pixel'), 
         use_object_obs=False, 
-        camera_depths=args.use_camera_depths, 
+        camera_depths=args.use_camera_depth, 
         horizon=args.horizon, 
         camera_names=args.train_camera_names, 
         camera_heights=args.image_size, 

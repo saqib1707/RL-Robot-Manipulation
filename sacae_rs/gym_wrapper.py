@@ -27,7 +27,6 @@ class GymWrapper(Wrapper, Env):
     """
 
     def __init__(self, env, keys=None):
-        print("This is custom gym wrapper")
         # Run super method
         super().__init__(env=env)
         # Create name for gym
@@ -67,7 +66,7 @@ class GymWrapper(Wrapper, Env):
         low, high = self.env.action_spec
         self.action_space = spaces.Box(low=low, high=high)
 
-    def _flatten_obs(self, obs_dict, verbose=True):
+    def _flatten_obs(self, obs_dict, verbose=False):
         """
         Filters keys of interest out and concatenate the information.
 
