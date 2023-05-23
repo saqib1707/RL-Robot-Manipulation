@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument('--actor_update_freq', default=2, type=int)
     # encoder/decoder
     parser.add_argument('--encoder_type', default='pixel', type=str)
-    parser.add_argument('--use_camera_depth', default=False, action='store_true')
+    parser.add_argument('--use_depth_obs', default=False, action='store_true')
     parser.add_argument('--encoder_feature_dim', default=50, type=int)
     parser.add_argument('--encoder_lr', default=1e-3, type=float)
     parser.add_argument('--encoder_tau', default=0.05, type=float)
@@ -200,7 +200,7 @@ def main():
         has_offscreen_renderer=True, 
         use_camera_obs=(args.encoder_type == 'pixel'), 
         use_object_obs=False, 
-        camera_depths=args.use_camera_depth, 
+        camera_depths=args.use_depth_obs, 
         horizon=args.horizon, 
         camera_names=args.train_camera_names, 
         camera_heights=args.image_size, 

@@ -34,9 +34,9 @@ def define_config():
 
   # General.
   basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
-  config.logdir = pathlib.Path(basedir+'/.logdir')
-  config.model_datadir = pathlib.Path(basedir+'/.model_data')
-  config.policy_datadir = pathlib.Path(basedir+'/.policy_data')
+  config.logdir = pathlib.Path(basedir+'/logdir')
+  config.model_datadir = pathlib.Path(basedir+'/model_data')
+  config.policy_datadir = pathlib.Path(basedir+'/policy_data')
   config.expert_datadir = pathlib.Path('.expert')
 
   # config.logdir = pathlib.Path('.logdir')
@@ -57,7 +57,7 @@ def define_config():
   config.task = 'robosuite_Lift_pick'
   config.envs = 1
   config.parallel = 'none'
-  config.action_repeat = 2
+  config.action_repeat = 1
   config.time_limit = 1000
   config.prefill = 1000
   config.eval_noise = 0.0

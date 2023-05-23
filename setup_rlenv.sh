@@ -11,3 +11,6 @@ pip3 install -e ./
 cd ../
 apt-get install -y ffmpeg
 python3 /home/envs/rlenv/lib/python3.8/site-packages/robosuite/scripts/setup_macros.py
+deactivate
+cp nautilus_utils/.bashrc /root/.bashrc
+# source ~/.bashrc # (this does not work)

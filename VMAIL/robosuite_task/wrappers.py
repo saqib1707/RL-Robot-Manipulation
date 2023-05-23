@@ -31,13 +31,14 @@ class RobosuiteTask:
           has_renderer=False, 
           has_offscreen_renderer=True, 
           use_camera_obs=True, 
-          use_object_obs=False, 
+          use_object_obs=True, 
           horizon=horizon, 
           camera_names="agentview", 
           camera_heights=size[0], 
           camera_widths=size[1], 
+          use_tactile_obs=False,
+          use_touch_obs=True
       )
-      # self._removed_keys = ['gripper_to_cube_pos', 'object-state']
 
   @property
   def observation_space(self):

@@ -82,6 +82,7 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 alias c='clear'
+alias activate='source /home/envs/rlenv/bin/activate'
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -116,31 +117,26 @@ PS1+="\n\[\033[m\]$ ";
 #    . /etc/bash_completion
 #fi
 
-# for the pod
-# export LD_LIBRARY_PATH=/usr/local/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
-# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/root/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/bin/
-# export MUJOCO_PY_MUJOCO_PATH=/root/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/
-# export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+# for the job
+export MUJOCO_GL=osmesa     # (for headless linux without X-display)
+# export MUJOCO_GL=glfw     # (on MacOS, use glfw backend instead)
+# export MUJOCO_GL=egl
 
-# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin
+# below line for GPU rendering
+export LD_LIBRARY_PATH=/usr/local/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+
+# below line only for a headless server
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/bin
+# export MUJOCO_PY_MUJOCO_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco210/bin
 # export MUJOCO_PY_MUJOCO_PATH=""
 
-
-# for the job
-export MUJOCO_GL=osmesa
-# export MUJOCO_GL=glfw
-# export MUJOCO_GL=egl
 # export MJLIB_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/bin/libmujoco210.dylib
 # export MJKEY_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/mjkey.txt
 # export MUJOCO_PY_MJPRO_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/
 # export MUJOCO_PY_MJKEY_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/mjkey.txt
-
-export LD_LIBRARY_PATH=/usr/local/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
-# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/bin/
-# export MUJOCO_PY_MUJOCO_PATH=/home/saqibcephsharedvol2/ERLab/IRL_Project/.mujoco/mujoco210/
-export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
-# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin
-# export MUJOCO_PY_MUJOCO_PATH=""
 
 # CUDNN_PATH=$(dirname $(python -c "import nvidia.cudnn;print(nvidia.cudnn.__file__)"))
 CUDNN_PATH='/home/envs/rlenv/lib/python3.8/site-packages/nvidia/cudnn'

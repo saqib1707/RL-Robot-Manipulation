@@ -159,8 +159,7 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
   directory = pathlib.Path(directory).expanduser()
   random = np.random.RandomState(seed)
   cache = {}
-  removed_keys = ['robot0_touch', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_touch-state', 'object-state']
-  # removed_keys = ['robot0_touch', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_touch-state']
+  # removed_keys = ['cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat']
   
   while True:
     for filename in directory.glob('*.npz'):
@@ -168,11 +167,11 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
         try:
           with filename.open('rb') as f:
             raw_episode = np.load(f)
-            episode = {}
-            for k, v in raw_episode.items():
-              if k not in removed_keys:
-                episode[k] = v
-            # episode = {k: episode[k] for k in episode.keys()}
+            # episode = {}
+            # for k, v in raw_episode.items():
+            #   if k not in removed_keys:
+            #     episode[k] = v
+            episode = {k: raw_episode[k] for k in raw_episode.keys()}
         except Exception as e:
           print(f'Could not load episode: {e}')
           continue

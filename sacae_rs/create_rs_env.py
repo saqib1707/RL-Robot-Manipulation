@@ -12,8 +12,8 @@ import pprint
 
 import robosuite as suite
 from robosuite.controllers import load_controller_config
-# from robosuite.wrappers import GymWrapper
-from gym_wrapper import GymWrapper
+from robosuite.wrappers import GymWrapper
+# from gym_wrapper import GymWrapper
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == 'cuda':
