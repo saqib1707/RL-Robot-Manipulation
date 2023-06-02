@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pytz
 from tqdm import tqdm
 import pdb
+import copy
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['MUJOCO_GL'] = 'egl'
@@ -33,16 +34,11 @@ def define_config():
   config = tools.AttrDict()
 
   # General.
-  basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
-  config.logdir = pathlib.Path(basedir+'/logdir')
-  config.model_datadir = pathlib.Path(basedir+'/model_data')
-  config.policy_datadir = pathlib.Path(basedir+'/policy_data')
+  config.basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+  config.logdir = pathlib.Path(config.basedir+'/logdir')
+  config.model_datadir = pathlib.Path(config.basedir+'/model_data')
+  config.policy_datadir = pathlib.Path(config.basedir+'/policy_data')
   config.expert_datadir = pathlib.Path('.expert')
-
-  # config.logdir = pathlib.Path('.logdir')
-  # config.model_datadir = pathlib.Path('.model_data')
-  # config.policy_datadir = pathlib.Path('.policy_data')
-  # config.expert_datadir = pathlib.Path('.expert')
 
   config.seed = 0
   config.steps = 5e5
@@ -53,7 +49,6 @@ def define_config():
   config.gpu_growth = True
   config.precision = 32
   # Environment.
-  # config.task = 'dmc_walker_walk'
   config.task = 'robosuite_Lift_pick'
   config.envs = 1
   config.parallel = 'none'
@@ -496,10 +491,22 @@ def main(config):
   if config.precision == 16:
     prec.set_policy(prec.Policy('mixed_float16'))
   config.steps = int(config.steps)
+
+  os.makedirs(config.basedir, exist_ok=True)
   config.logdir.mkdir(parents=True, exist_ok=True)
   config.model_datadir.mkdir(parents=True, exist_ok=True)
   config.policy_datadir.mkdir(parents=True, exist_ok=True)
   config.expert_datadir.mkdir(parents=True, exist_ok=True)
+
+  new_config = copy.deepcopy(config)
+  new_config.logdir = str(new_config.logdir)
+  new_config.model_datadir = str(new_config.model_datadir)
+  new_config.policy_datadir = str(new_config.policy_datadir)
+  new_config.expert_datadir = str(new_config.expert_datadir)
+
+  with open(os.path.join(new_config.logdir, 'args.json'), 'w') as f:
+    json.dump(vars(new_config), f, sort_keys=True, indent=4)
+
   from distutils.dir_util import copy_tree
   copy_tree(str(config.expert_datadir), str(config.model_datadir))
 

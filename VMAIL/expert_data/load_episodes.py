@@ -5,6 +5,14 @@ import numpy as np
 import imageio
 from PIL import Image
 
+import torch
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device.type == 'cuda':
+    print("Number of GPU devices:", torch.cuda.device_count())
+    print("GPU device name:", torch.cuda.get_device_name(0))
+else:
+    print("Device:", device)
+
 
 def load_episodes(directory, capacity=None):
     # The returned directory from filenames to episodes is guaranteed to be in
