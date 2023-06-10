@@ -45,7 +45,7 @@ def eplen(episode):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--path', default='robosuite_expert_small/Lift/Panda/OSC_POSE', type=str)
+parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230531-1000/', type=str)
 args = parser.parse_args()
 
 directory = pathlib.Path(args.path)
@@ -58,22 +58,21 @@ filenames = sorted(directory.glob('*.npz'))
 
 print(len(filenames))
 for filename in filenames:
-    print(filename, episodes[str(filename)].keys())
-    # break
-
+    # print(filename, episodes[str(filename)].keys())
     # np.savez(filename, episodes[str(filename)])
     for k, v in episodes[str(filename)].items():
         print(k, v.shape)
 
-        if k == "agentview_image":
-            print("Agentview image")
-            print(v.min(), v.max())
+        # if k == "agentview_image":
+        #     print("Agentview image")
+        #     print(v.min(), v.max())
 
         # if k == 'robot0_touch-state':
         #     print(k, np.unique(v))
         
         # if k == 'robot0_touch':
         #     print(k, np.unique(v))
+    break
 
 
 # stitch the images in an episode from expert data and store in a video for visualization

@@ -29,8 +29,10 @@ env_name = "Lift"
 # load default controller parameters for Operational Space Control (OSC)
 controller_config = load_controller_config(default_controller="OSC_POSE")
 # controller_config = None
-train_camera_names = "agentview"
-horizon = 250
+
+train_camera_names = "robot0_eye_in_hand"
+# train_camera_names = "agentview"
+horizon = 100
 image_size = 84
 use_camera_depth = False
 use_tactile_obs = False

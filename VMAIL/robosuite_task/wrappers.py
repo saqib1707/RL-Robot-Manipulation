@@ -11,10 +11,10 @@ from PIL import Image
 
 
 class RobosuiteTask:
-  def __init__(self, name, horizon=1000, size=(84, 84), camera=None):
+  def __init__(self, name, horizon=1000, size=(84, 84), camera="agentview"):
     domain, task = name.split('_', 1)
     self._size = size
-    self._camera = camera
+    self._imageview = camera+'_image'
 
     if isinstance(domain, str):
       import robosuite as suite
@@ -31,9 +31,10 @@ class RobosuiteTask:
           has_renderer=False, 
           has_offscreen_renderer=True, 
           use_camera_obs=True, 
-          use_object_obs=True, 
+          use_object_obs=True,
+          control_freq=20, 
           horizon=horizon, 
-          camera_names="agentview", 
+          camera_names=camera, 
           camera_heights=size[0], 
           camera_widths=size[1], 
           use_tactile_obs=False,
@@ -47,7 +48,7 @@ class RobosuiteTask:
     for key, value in self._env.observation_spec().items():
       spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
     
-    spaces['agentview_image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
+    spaces[self._imageview] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     # spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     return gym.spaces.Dict(spaces)
 
@@ -59,16 +60,13 @@ class RobosuiteTask:
 
   def step(self, action):
     next_obs, reward, done, info = self._env.step(action)
-    # print("Inside step:", next_obs.keys())
-    # next_obs['image'] = next_obs['agentview_image'].copy()
-    # reward = reward or 0
+    # next_obs['image'] = np.copy(next_obs[self._camera+'_image'])
     return next_obs, reward, done, info
 
   def reset(self):
     obs = self._env.reset()
-    # plt.imsave('images/test.png', obs['agentview_image'])
-    # print("Inside reset", obs.keys())
-    # obs['image'] = np.copy(obs['agentview_image'])
+    # plt.imsave('images/test.png', obs[self._camera+'_image'])
+    # obs['image'] = np.copy(obs[self._camera+'_image'])
     return obs
 
 

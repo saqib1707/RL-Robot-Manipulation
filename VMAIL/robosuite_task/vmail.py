@@ -13,7 +13,7 @@ import pdb
 import copy
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['MUJOCO_GL'] = 'egl'
+# os.environ['MUJOCO_GL'] = 'egl'
 
 import numpy as np
 import torch
@@ -40,16 +40,19 @@ def define_config():
   config.policy_datadir = pathlib.Path(config.basedir+'/policy_data')
   config.expert_datadir = pathlib.Path('.expert')
 
-  config.seed = 0
-  config.steps = 5e5
+  config.seed = 1
+  config.steps = 1000000
   config.eval_every = 1000
   config.log_every = 100
   config.log_scalars = True
   config.log_images = True
   config.gpu_growth = True
   config.precision = 32
+
   # Environment.
   config.task = 'robosuite_Lift_pick'
+  config.camera_names = 'agentview'
+  # config.camera_names = 'robot0_eye_in_hand'
   config.envs = 1
   config.parallel = 'none'
   config.action_repeat = 1
@@ -57,6 +60,7 @@ def define_config():
   config.prefill = 1000
   config.eval_noise = 0.0
   config.clip_rewards = 'none'
+
   # Model.
   config.deter_size = 200
   config.stoch_size = 30
@@ -71,6 +75,7 @@ def define_config():
   config.pcont_scale = 10.0
   config.weight_decay = 0.0
   config.weight_decay_pattern = r'.*'
+
   # Training.
   config.batch_size = 128
   config.batch_length = 50
@@ -84,6 +89,7 @@ def define_config():
   config.grad_clip = 100.0
   config.dataset_balance = False
   config.store = True
+
   # Behavior.
   config.discount = 0.99
   config.disclam = 0.95
@@ -94,12 +100,14 @@ def define_config():
   config.expl_amount = 0.3
   config.expl_decay = 0.0
   config.expl_min = 0.0
+
   return config
 
 
 class VMAIL(tools.Module):
   def __init__(self, config, model_datadir, policy_datadir, expert_datadir, actspace, writer):
     self._c = config
+    self._imageview = self._c.camera_names + "_image"
     self._actspace = actspace
     self._actdim = actspace.n if hasattr(actspace, 'n') else actspace.shape[0]
     self._writer = writer
@@ -116,10 +124,13 @@ class VMAIL(tools.Module):
     self._float = prec.global_policy().compute_dtype
     self._strategy = tf.distribute.MirroredStrategy()
     with self._strategy.scope():
+      # create tensorflow python distributed iterator objects
       self._model_dataset = iter(self._strategy.experimental_distribute_dataset(
           load_dataset(model_datadir, self._c)))
       self._expert_dataset = iter(self._strategy.experimental_distribute_dataset(
           load_dataset(expert_datadir, self._c)))
+      # print("self._model_dataset:", self._model_dataset)
+      # print("self._expert_dataset:", self._expert_dataset)
       self._build_model()
 
   def __call__(self, obs, reset, state=None, training=True):
@@ -146,8 +157,8 @@ class VMAIL(tools.Module):
   @tf.function
   def policy(self, obs, state, training):
     if state is None:
-      latent = self._dynamics.initial(len(obs['agentview_image']))
-      action = tf.zeros((len(obs['agentview_image']), self._actdim), self._float)
+      latent = self._dynamics.initial(len(obs[self._imageview]))
+      action = tf.zeros((len(obs[self._imageview]), self._actdim), self._float)
     else:
       latent, action = state
     embed = self._encode(preprocess(obs, self._c))
@@ -177,7 +188,7 @@ class VMAIL(tools.Module):
       feat = self._dynamics.get_feat(post)
       image_pred = self._decode(feat)
       likes = tools.AttrDict()
-      likes.image = tf.reduce_mean(image_pred.log_prob(model_data['agentview_image']))
+      likes.image = tf.reduce_mean(image_pred.log_prob(model_data[self._imageview]))
       if self._c.pcont:
         pcont_pred = self._pcont(feat)
         pcont_target = self._c.discount * model_data['discount']
@@ -258,30 +269,24 @@ class VMAIL(tools.Module):
         self._image_summaries(model_data, embed, image_pred)
 
   def _build_model(self):
-    acts = dict(
-        elu=tf.nn.elu, relu=tf.nn.relu, swish=tf.nn.swish,
-        leaky_relu=tf.nn.leaky_relu)
+    acts = dict(elu=tf.nn.elu, relu=tf.nn.relu, swish=tf.nn.swish, leaky_relu=tf.nn.leaky_relu)
     cnn_act = acts[self._c.cnn_act]
     act = acts[self._c.dense_act]
-    self._encode = models.ConvEncoder(self._c.cnn_depth, cnn_act)
-    self._dynamics = models.RSSM(
-        self._c.stoch_size, self._c.deter_size, self._c.deter_size)
+    self._encode = models.ConvEncoder(self._c.cnn_depth, cnn_act, self._imageview)
+    self._dynamics = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
     self._decode = models.ConvDecoder(self._c.cnn_depth, cnn_act)
     self._reward = models.DenseDecoder((), 2, self._c.num_units, act=act)
     if self._c.pcont:
-      self._pcont = models.DenseDecoder(
-          (), 3, self._c.num_units, 'binary', act=act)
+      self._pcont = models.DenseDecoder((), 3, self._c.num_units, 'binary', act=act)
     self._discriminator = models.DenseDecoder((), 2, self._c.num_units, 'binary', act=act)
     self._value = models.DenseDecoder((), 3, self._c.num_units, act=act)
-    self._actor = models.ActionDecoder(
-        self._actdim, 4, self._c.num_units, self._c.action_dist,
-        init_std=self._c.action_init_std, act=act)
+    self._actor = models.ActionDecoder(self._actdim, 4, self._c.num_units, self._c.action_dist, init_std=self._c.action_init_std, act=act)
+    
     model_modules = [self._encode, self._dynamics, self._decode, self._reward]
     if self._c.pcont:
       model_modules.append(self._pcont)
-    Optimizer = functools.partial(
-        tools.Adam, wd=self._c.weight_decay, clip=self._c.grad_clip,
-        wdpattern=self._c.weight_decay_pattern)
+    
+    Optimizer = functools.partial(tools.Adam, wd=self._c.weight_decay, clip=self._c.grad_clip, wdpattern=self._c.weight_decay_pattern)
     self._model_opt = Optimizer('model', model_modules, self._c.model_lr)
     self._discriminator_opt = Optimizer('discriminator', [self._discriminator], self._c.discriminator_lr)
     self._value_opt = Optimizer('value', [self._value], self._c.value_lr)
@@ -359,7 +364,7 @@ class VMAIL(tools.Module):
     self._metrics['action_ent'].update_state(self._actor(feat).entropy())
 
   def _image_summaries(self, data, embed, image_pred):
-    truth = data['agentview_image'][:6] + 0.5
+    truth = data[self._imageview][:6] + 0.5
     recon = image_pred.mode()[:6]
     init, _ = self._dynamics.observe(embed[:6, :5], data['action'][:6, :5])
     init = {k: v[:, -1] for k, v in init.items()}
@@ -393,7 +398,8 @@ def preprocess(obs, config):
   dtype = prec.global_policy().compute_dtype
   obs = obs.copy()
   with tf.device('cpu:0'):
-    obs['agentview_image'] = tf.cast(obs['agentview_image'], dtype) / 255.0 - 0.5
+    imageview = config.camera_names+'_image'
+    obs[imageview] = tf.cast(obs[imageview], dtype) / 255.0 - 0.5
     clip_rewards = dict(none=lambda x: x, tanh=tf.tanh)[config.clip_rewards]
     obs['reward'] = clip_rewards(obs['reward'])
     for k, v in obs.items():
@@ -408,20 +414,17 @@ def count_steps(datadir, config):
 def load_dataset(directory, config):
   episode = next(tools.load_episodes(directory, 1))
   for k, v in episode.items():
+    # print("This should be printed:", k, v.shape)
     if v.dtype == 'float64':
       episode[k] = v.astype('float32')
   
   types = {k: v.dtype for k, v in episode.items()}
-  # print("Types:", types)
   shapes = {k: (None,) + v.shape[1:] for k, v in episode.items()}
-  generator = lambda: tools.load_episodes(
-      directory, config.train_steps, config.batch_length,
-      config.dataset_balance)
+  generator = lambda: tools.load_episodes(directory, config.train_steps, config.batch_length, config.dataset_balance)
   dataset = tf.data.Dataset.from_generator(generator, types, shapes)
   dataset = dataset.batch(config.batch_size, drop_remainder=True)
   dataset = dataset.map(functools.partial(preprocess, config=config))
   dataset = dataset.prefetch(10)
-  # print("Dataset:", dataset)
   return dataset
 
 
@@ -441,7 +444,7 @@ def summarize_episode(episode, config, datadir, writer, prefix):
     tf.summary.experimental.set_step(step)
     [tf.summary.scalar('sim/' + k, v) for k, v in metrics]
     if prefix == 'test':
-      tools.video_summary(f'sim/{prefix}/video', episode['agentview_image'][None])
+      tools.video_summary(f'sim/{prefix}/video', episode[config.camera_names+'_image'][None])
 
 
 def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
@@ -456,7 +459,7 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
         life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
   elif suite == 'robosuite':
-    env = wrappers.RobosuiteTask(task)
+    env = wrappers.RobosuiteTask(task, horizon=1000, camera=config.camera_names)
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
   else:
@@ -503,10 +506,10 @@ def main(config):
   new_config.model_datadir = str(new_config.model_datadir)
   new_config.policy_datadir = str(new_config.policy_datadir)
   new_config.expert_datadir = str(new_config.expert_datadir)
-
   with open(os.path.join(new_config.logdir, 'args.json'), 'w') as f:
     json.dump(vars(new_config), f, sort_keys=True, indent=4)
 
+  # copy expert data to another directory "model_datadir"
   from distutils.dir_util import copy_tree
   copy_tree(str(config.expert_datadir), str(config.model_datadir))
 
@@ -514,8 +517,7 @@ def main(config):
   model_datadir = config.model_datadir
   policy_datadir = config.policy_datadir
   expert_datadir = config.expert_datadir
-  writer = tf.summary.create_file_writer(
-      str(config.logdir), max_queue=1000, flush_millis=20000)
+  writer = tf.summary.create_file_writer(str(config.logdir), max_queue=1000, flush_millis=20000)
   writer.set_as_default()
   train_envs = [wrappers.Async(lambda: make_env(
       config, writer, 'train', model_datadir, policy_datadir, store=config.store), config.parallel)
@@ -527,6 +529,7 @@ def main(config):
 
   # Prefill dataset with random episodes.
   step = count_steps(model_datadir, config)
+  # print("What is step?", config.prefill - step)
   prefill = max(0, config.prefill - step)
   print(f'Prefill dataset with {prefill} steps.')
   random_agent = lambda o, d, _: ([actspace.sample() for _ in d], None)

@@ -16,13 +16,11 @@ from tensorflow_probability import distributions as tfd
 
 
 class AttrDict(dict):
-
   __setattr__ = dict.__setitem__
   __getattr__ = dict.__getitem__
 
 
 class Module(tf.Module):
-
   def save(self, filename):
     values = tf.nest.map_structure(lambda x: x.numpy(), self.variables)
     with pathlib.Path(filename).open('wb') as f:
@@ -135,9 +133,10 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
 
 def count_episodes(directory):
   filenames = directory.glob('*.npz')
-  lengths = [int(n.stem.rsplit('-', 1)[-1]) - 1 for n in filenames]
-  episodes, steps = len(lengths), sum(lengths)
-  return episodes, steps
+  # lengths = [int(n.stem.rsplit('-', 1)[-1]) - 1 for n in filenames]
+  lengths = [int(n.stem.rsplit('-', 1)[-1]) for n in filenames]
+  num_episodes, steps = len(lengths), sum(lengths)
+  return num_episodes, steps
 
 
 def save_episodes(directory, episodes):
@@ -440,7 +439,6 @@ tfd.Categorical.sample = _cat_sample
 
 
 class Every:
-
   def __init__(self, every):
     self._every = every
     self._last = None
@@ -456,7 +454,6 @@ class Every:
 
 
 class Once:
-
   def __init__(self):
     self._once = True
 

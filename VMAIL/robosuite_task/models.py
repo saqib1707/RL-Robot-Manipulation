@@ -10,7 +10,6 @@ import pdb
 
 
 class RSSM(tools.Module):
-
   def __init__(self, stoch=30, deter=200, hidden=200, act=tf.nn.elu):
     super().__init__()
     self._activation = act
@@ -84,32 +83,29 @@ class RSSM(tools.Module):
 
 
 class ConvEncoder(tools.Module):
-
-  def __init__(self, depth=32, act=tf.nn.relu):
-    self._act = act
-    self._depth = depth
+  def __init__(self, depth=32, act=tf.nn.relu, imageview="agentview_image"):
+    self._act = act      # ReLU
+    self._depth = depth   # 32
+    self._imageview = imageview
+    # print("inside convencoder:", self._act, self._depth, self._imageview)
 
   def __call__(self, obs):
     kwargs = dict(strides=2, activation=self._act)
-    x = tf.reshape(obs['agentview_image'], (-1,) + tuple(obs['agentview_image'].shape[-3:]))
-    # print("stage-1:", x.shape)
+    # print("stage-0:", obs[self._imageview].shape)     # [128,50,84,84,3]
+    # print("stage-01:", tuple(obs[self._imageview].shape[-3:]))   # [84,84,3]
+    x = tf.reshape(obs[self._imageview], (-1,) + tuple(obs[self._imageview].shape[-3:]))  # [6400,84,84,3]
     x = self.get('h1', tfkl.Conv2D, 1 * self._depth, 4, **kwargs)(x)
-    # print("stage-2:", x.shape)
     x = self.get('h2', tfkl.Conv2D, 2 * self._depth, 4, **kwargs)(x)
-    # print("stage-3:", x.shape)
     x = self.get('h3', tfkl.Conv2D, 4 * self._depth, 4, **kwargs)(x)
-    # print("stage-4:", x.shape)
     x = self.get('h4', tfkl.Conv2D, 8 * self._depth, 4, **kwargs)(x)
-    x = self.get('h5', tfkl.Conv2D, 8 * self._depth, 2, strides=1, activation=self._act)(x)
-    # print("stage-5:", x.shape)
-    shape = tf.concat([tf.shape(obs['agentview_image'])[:-3], [32 * self._depth]], 0)
-    # tf.print("stage-6:", shape)
-    # pdb.set_trace()
-    return tf.reshape(x, shape)
+    x = self.get('h5', tfkl.Conv2D, 8 * self._depth, 2, strides=1, activation=self._act)(x)   # [6400,2,2,256]
+    shape = tf.concat([tf.shape(obs[self._imageview])[:-3], [32 * self._depth]], 0)  # =[128,50,1024]
+
+    # converts each image in a batch to 1024-dim vector
+    return tf.reshape(x, shape)  # [128,50,1024]
 
 
 class ConvDecoder(tools.Module):
-
   def __init__(self, depth=32, act=tf.nn.relu, shape=(84, 84, 3)):
     self._act = act
     self._depth = depth
@@ -117,18 +113,20 @@ class ConvDecoder(tools.Module):
 
   def __call__(self, features):
     kwargs = dict(strides=2, activation=self._act)
+    # print("Stage-1:", features.shape) # [128,50,230]
     x = self.get('h1', tfkl.Dense, 32 * self._depth, None)(features)
     x = tf.reshape(x, [-1, 1, 1, 32 * self._depth])
     x = self.get('h2', tfkl.Conv2DTranspose, 4 * self._depth, 7, **kwargs)(x)
     x = self.get('h3', tfkl.Conv2DTranspose, 2 * self._depth, 7, **kwargs)(x)
     x = self.get('h4', tfkl.Conv2DTranspose, 1 * self._depth, 4, **kwargs)(x)
-    x = self.get('h5', tfkl.Conv2DTranspose, self._shape[-1], 6, strides=2)(x)
-    mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0))
+    x = self.get('h5', tfkl.Conv2DTranspose, self._shape[-1], 6, strides=2)(x)  # [6400,84,84,3]
+    # print("Stage-2:", x.shape)
+    mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0)) # [128,50,84,84,3]
+    # print("stage-3:", mean.shape)
     return tfd.Independent(tfd.Normal(mean, 1), len(self._shape))
 
 
 class DenseDecoder(tools.Module):
-
   def __init__(self, shape, layers, units, dist='normal', act=tf.nn.elu):
     self._shape = shape
     self._layers = layers
@@ -150,7 +148,6 @@ class DenseDecoder(tools.Module):
 
 
 class ActionDecoder(tools.Module):
-
   def __init__(
       self, size, layers, units, dist='tanh_normal', act=tf.nn.elu,
       min_std=1e-4, init_std=5, mean_scale=5):
