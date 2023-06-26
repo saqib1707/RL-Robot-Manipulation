@@ -69,7 +69,7 @@ def define_config():
   config.cnn_act = 'relu'
   config.cnn_depth = 32
   config.pcont = False
-  config.free_nats = 3.0
+  config.free_nats = 3.0  # what is free nats ??
   config.alpha = 1.0
   config.kl_scale = 1.0
   config.pcont_scale = 10.0
@@ -96,6 +96,8 @@ def define_config():
   config.horizon = 15
   config.action_dist = 'tanh_normal'
   config.action_init_std = 5.0
+
+  # Exploration parameters
   config.expl = 'additive_gaussian'
   config.expl_amount = 0.3
   config.expl_decay = 0.0
@@ -109,11 +111,14 @@ class VMAIL(tools.Module):
     self._c = config
     self._imageview = self._c.camera_names + "_image"
     self._actspace = actspace
-    self._actdim = actspace.n if hasattr(actspace, 'n') else actspace.shape[0]
+    self._actdim = actspace.n if hasattr(actspace, 'n') else actspace.shape[0]  # 7
+    # print("What is actdim:", self._actdim)
     self._writer = writer
     self._random = np.random.RandomState(config.seed)
+    
     with tf.device('cpu:0'):
       self._step = tf.Variable(count_steps(policy_datadir, config), dtype=tf.int64)
+    
     self._should_pretrain = tools.Once()
     self._should_train = tools.Every(config.train_every)
     self._should_log = tools.Every(config.log_every)
@@ -123,6 +128,7 @@ class VMAIL(tools.Module):
     self._metrics['expl_amount']  # Create variable for checkpoint.
     self._float = prec.global_policy().compute_dtype
     self._strategy = tf.distribute.MirroredStrategy()
+    
     with self._strategy.scope():
       # create tensorflow python distributed iterator objects
       self._model_dataset = iter(self._strategy.experimental_distribute_dataset(
@@ -136,9 +142,11 @@ class VMAIL(tools.Module):
   def __call__(self, obs, reset, state=None, training=True):
     step = self._step.numpy().item()
     tf.summary.experimental.set_step(step)
+    
     if state is not None and reset.any():
       mask = tf.cast(1 - reset, self._float)[:, None]
       state = tf.nest.map_structure(lambda x: x * mask, state)
+    
     if self._should_train(step):
       log = self._should_log(step)
       n = self._c.pretrain if self._should_pretrain() else self._c.train_steps
@@ -149,9 +157,11 @@ class VMAIL(tools.Module):
           self.train(next(self._model_dataset), next(self._expert_dataset), log_images)
       if log:
         self._write_summaries()
+    
     action, state = self.policy(obs, state, training)
     if training:
       self._step.assign_add(len(reset) * self._c.action_repeat)
+    
     return action, state
 
   @tf.function
@@ -162,7 +172,8 @@ class VMAIL(tools.Module):
     else:
       latent, action = state
     embed = self._encode(preprocess(obs, self._c))
-    latent, _ = self._dynamics.obs_step(latent, action, embed)
+    print("inside policy:", embed.shape)
+    latent, _ = self._dynamics.obs_step(latent, action, embed)  # returns (posterior, prior)dictionaries
     feat = self._dynamics.get_feat(latent)
     if training:
       action = self._actor(feat).sample()
@@ -183,27 +194,38 @@ class VMAIL(tools.Module):
 
   def _train(self, model_data, expert_data, log_images):
     with tf.GradientTape() as model_tape:
+      # compute embedded features for images sampled from policy
       embed = self._encode(model_data)
       post, prior = self._dynamics.observe(embed, model_data['action'])
       feat = self._dynamics.get_feat(post)
       image_pred = self._decode(feat)
+      print("Inside train:", image_pred)
+      
       likes = tools.AttrDict()
       likes.image = tf.reduce_mean(image_pred.log_prob(model_data[self._imageview]))
-      if self._c.pcont:
+      
+      if self._c.pcont:   # False
         pcont_pred = self._pcont(feat)
         pcont_target = self._c.discount * model_data['discount']
         likes.pcont = tf.reduce_mean(pcont_pred.log_prob(pcont_target))
         likes.pcont *= self._c.pcont_scale
-      prior_dist = self._dynamics.get_dist(prior)
-      post_dist = self._dynamics.get_dist(post)
+      
+      # estimate prior and posterior transition dynamics distribution
+      prior_dist = self._dynamics.get_distribution(prior)
+      post_dist = self._dynamics.get_distribution(post)
+
+      # compute divergence
       div = tf.reduce_mean(tfd.kl_divergence(post_dist, prior_dist))
+      print("Estimated divergence:", div)
       div = tf.maximum(div, self._c.free_nats)
-      model_loss = self._c.kl_scale * div - sum(likes.values())
+      
+      model_loss = self._c.kl_scale * div - sum(likes.values())  # Eq.7 in vmail paper
       model_loss /= float(self._strategy.num_replicas_in_sync)
       
     with tf.GradientTape(persistent=True) as agent_tape:
       imag_feat, actions = self._imagine_ahead(post)
       
+      # compute embedded features for images from expert data
       embed_expert = self._encode(expert_data)
       post_expert, prior_expert = self._dynamics.observe(embed_expert, expert_data['action'])
       feat_expert = self._dynamics.get_feat(post_expert)
@@ -237,12 +259,9 @@ class VMAIL(tools.Module):
         pcont = self._c.discount * tf.ones_like(reward)
       value = self._value(imag_feat[1:]).mode()
 
-      returns = tools.lambda_return(
-                  reward[:-1], value[:-1], pcont[:-1],
-                  bootstrap=None, lambda_ = 1.0, axis=0)
+      returns = tools.lambda_return(reward[:-1], value[:-1], pcont[:-1], bootstrap=None, lambda_ = 1.0, axis=0)
       
-      discount = tf.stop_gradient(tf.math.cumprod(tf.concat(
-          [tf.ones_like(pcont[:1]), pcont[:-2]], 0), 0))
+      discount = tf.stop_gradient(tf.math.cumprod(tf.concat([tf.ones_like(pcont[:1]), pcont[:-2]], 0), 0))
       actor_loss = -tf.reduce_mean(discount * returns)
       actor_loss /= float(self._strategy.num_replicas_in_sync)
 
@@ -268,6 +287,7 @@ class VMAIL(tools.Module):
       if tf.equal(log_images, True):
         self._image_summaries(model_data, embed, image_pred)
 
+
   def _build_model(self):
     acts = dict(elu=tf.nn.elu, relu=tf.nn.relu, swish=tf.nn.swish, leaky_relu=tf.nn.leaky_relu)
     cnn_act = acts[self._c.cnn_act]
@@ -276,8 +296,10 @@ class VMAIL(tools.Module):
     self._dynamics = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
     self._decode = models.ConvDecoder(self._c.cnn_depth, cnn_act)
     self._reward = models.DenseDecoder((), 2, self._c.num_units, act=act)
+    
     if self._c.pcont:
       self._pcont = models.DenseDecoder((), 3, self._c.num_units, 'binary', act=act)
+    
     self._discriminator = models.DenseDecoder((), 2, self._c.num_units, 'binary', act=act)
     self._value = models.DenseDecoder((), 3, self._c.num_units, act=act)
     self._actor = models.ActionDecoder(self._actdim, 4, self._c.num_units, self._c.action_dist, init_std=self._c.action_init_std, act=act)
@@ -292,30 +314,33 @@ class VMAIL(tools.Module):
     self._value_opt = Optimizer('value', [self._value], self._c.value_lr)
     self._actor_opt = Optimizer('actor', [self._actor], self._c.actor_lr)
     
+  
   def _exploration(self, action, training):
     if training:
       amount = self._c.expl_amount
-      if self._c.expl_decay:
+      if self._c.expl_decay:   # False
+        print("Should not be printed")
         amount *= 0.5 ** (tf.cast(self._step, tf.float32) / self._c.expl_decay)
-      if self._c.expl_min:
+      if self._c.expl_min:    # False
+        print("Should not be printed")
         amount = tf.maximum(self._c.expl_min, amount)
       self._metrics['expl_amount'].update_state(amount)
     elif self._c.eval_noise:
       amount = self._c.eval_noise
     else:
       return action
+    
     if self._c.expl == 'additive_gaussian':
       return tf.clip_by_value(tfd.Normal(action, amount).sample(), -1, 1)
-    if self._c.expl == 'completely_random':
+    elif self._c.expl == 'completely_random':
       return tf.random.uniform(action.shape, -1, 1)
-    if self._c.expl == 'epsilon_greedy':
+    elif self._c.expl == 'epsilon_greedy':
       indices = tfd.Categorical(0 * action).sample()
-      return tf.where(
-          tf.random.uniform(action.shape[:1], 0, 1) < amount,
-          tf.one_hot(indices, action.shape[-1], dtype=self._float),
-          action)
+      return tf.where(tf.random.uniform(action.shape[:1], 0, 1) < amount, tf.one_hot(indices, action.shape[-1], dtype=self._float), action)
+    
     raise NotImplementedError(self._c.expl)
 
+  
   def _imagine_ahead(self, post):
     post = {k: v[:, :-1] for k, v in post.items()}
     flatten = lambda x: tf.reshape(x, [-1] + list(x.shape[2:]))
@@ -337,10 +362,8 @@ class VMAIL(tools.Module):
     imag_feat = self._dynamics.get_feat(states)
     return imag_feat, actions
 
-  def _scalar_summaries(
-      self, data, feat, prior_dist, post_dist, likes, div, model_loss,
-      expert_d, policy_d, max_policy_d, expert_loss, policy_loss, grad_penalty, discriminator_loss, rewards,
-      value_loss, actor_loss, model_norm, discriminator_norm, value_norm, actor_norm):
+  
+  def _scalar_summaries(self, data, feat, prior_dist, post_dist, likes, div, model_loss, expert_d, policy_d, max_policy_d, expert_loss, policy_loss, grad_penalty, discriminator_loss, rewards, value_loss, actor_loss, model_norm, discriminator_norm, value_norm, actor_norm):
     self._metrics['model_grad_norm'].update_state(model_norm)
     self._metrics['discriminator_norm'].update_state(discriminator_norm)
     self._metrics['value_grad_norm'].update_state(value_norm)
@@ -363,6 +386,7 @@ class VMAIL(tools.Module):
     self._metrics['actor_loss'].update_state(actor_loss)
     self._metrics['action_ent'].update_state(self._actor(feat).entropy())
 
+  
   def _image_summaries(self, data, embed, image_pred):
     truth = data[self._imageview][:6] + 0.5
     recon = image_pred.mode()[:6]
@@ -373,29 +397,42 @@ class VMAIL(tools.Module):
     model = tf.concat([recon[:, :5] + 0.5, openl + 0.5], 1)
     error = (model - truth + 1) / 2
     openl = tf.concat([truth, model, error], 2)
-    tools.graph_summary(
-        self._writer, tools.video_summary, 'agent/openl', openl)
+    tools.graph_summary(self._writer, tools.video_summary, 'agent/openl', openl)
 
+  
   def _write_summaries(self):
     step = int(self._step.numpy())
     metrics = [(k, float(v.result())) for k, v in self._metrics.items()]
+    
     if self._last_log is not None:
       duration = time.time() - self._last_time
       self._last_time += duration
       metrics.append(('fps', (step - self._last_log) / duration))
+    
     self._last_log = step
     [m.reset_states() for m in self._metrics.values()]
+    
     with (self._c.logdir / 'metrics.jsonl').open('a') as f:
       f.write(json.dumps({'step': step, **dict(metrics)}) + '\n')
+    
     [tf.summary.scalar('agent/' + k, m) for k, m in metrics]
     print(f'[{step}]', ' / '.join(f'{k} {v:.1f}' for k, v in metrics))
     self._writer.flush()
 
+
 def flatten(x):
-    return tf.reshape(x, [-1] + list(x.shape[2:]))
+  '''
+    if x.shape = [a, b, c, d, ...]
+    then y.shape = [a * b, c, d, ...]
+  '''
+  y = tf.reshape(x, [-1] + list(x.shape[2:]))
+  # print("inside flatten:", x.shape, y.shape)
+  return y
+
 
 def preprocess(obs, config):
-  dtype = prec.global_policy().compute_dtype
+  dtype = prec.global_policy().compute_dtype  # float32
+  # print("datatype inside preprocess:", dtype)
   obs = obs.copy()
   with tf.device('cpu:0'):
     imageview = config.camera_names+'_image'
@@ -454,9 +491,7 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
   elif suite == 'atari':
-    env = wrappers.Atari(
-        task, config.action_repeat, (64, 64), grayscale=False,
-        life_done=True, sticky_actions=True)
+    env = wrappers.Atari(task, config.action_repeat, (64, 64), grayscale=False, life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
   elif suite == 'robosuite':
     env = wrappers.RobosuiteTask(task, horizon=1000, camera=config.camera_names)
@@ -464,13 +499,14 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
     env = wrappers.NormalizeActions(env)
   else:
     raise NotImplementedError(suite)
+  
   env = wrappers.TimeLimit(env, config.time_limit / config.action_repeat)
   callbacks = []
   if store:
     callbacks.append(lambda ep: tools.save_episodes(model_datadir, [ep]))
     callbacks.append(lambda ep: tools.save_episodes(policy_datadir, [ep]))
-  callbacks.append(
-      lambda ep: summarize_episode(ep, config, policy_datadir, writer, prefix))
+  callbacks.append(lambda ep: summarize_episode(ep, config, policy_datadir, writer, prefix))
+  
   env = wrappers.Collect(env, callbacks, config.precision)
   env = wrappers.RewardObs(env)
   return env
@@ -490,6 +526,7 @@ def main(config):
     print("TF GPUs:", tf.config.experimental.list_physical_devices('GPU'))
     for gpu in tf.config.experimental.list_physical_devices('GPU'):
       tf.config.experimental.set_memory_growth(gpu, True)
+  
   assert config.precision in (16, 32), config.precision
   if config.precision == 16:
     prec.set_policy(prec.Policy('mixed_float16'))
