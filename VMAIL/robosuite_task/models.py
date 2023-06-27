@@ -52,10 +52,11 @@ class RSSM(tools.Module):
     '''
       action: [6,45,7]
     '''
-    print("inside rssm imagine")
+    # print("inside rssm imagine")
     if state is None:
       # initialize state
       state = self.initial(tf.shape(action)[0])
+    
     assert isinstance(state, dict), state
     # print("inside imagine:", action.shape, state)
     action = tf.transpose(action, [1, 0, 2])    # [45,6,7]
@@ -109,17 +110,17 @@ class RSSM(tools.Module):
 
 
 class ConvEncoder(tools.Module):
-  def __init__(self, depth=32, act=tf.nn.relu, imageview="agentview_image"):
+  def __init__(self, depth=32, act=tf.nn.relu, cameraview="agentview_image"):
     self._act = act      # ReLU
     self._depth = depth   # 32
-    self._imageview = imageview
-    # print("inside convencoder:", self._act, self._depth, self._imageview)
+    self._cameraview = cameraview
+    # print("inside convencoder:", self._act, self._depth, self._cameraview)
 
   def __call__(self, obs):
     # kwargs = dict(strides=2, activation=self._act)
-    # print("stage-0:", obs[self._imageview].shape)     # [128,50,84,84,3]
-    # print("stage-01:", tuple(obs[self._imageview].shape[-3:]))   # [84,84,3]
-    x = tf.reshape(obs[self._imageview], (-1,) + tuple(obs[self._imageview].shape[-3:]))  # [6400,84,84,3]
+    # print("stage-0:", obs[self._cameraview].shape)     # [128,50,84,84,3]
+    # print("stage-01:", tuple(obs[self._cameraview].shape[-3:]))   # [84,84,3]
+    x = tf.reshape(obs[self._cameraview], (-1,) + tuple(obs[self._cameraview].shape[-3:]))  # [6400,84,84,3]
     # print("stage0:", x.shape)
     x = self.get('h1', tfkl.Conv2D, filters=1 * self._depth, kernel_size=4, strides=2, activation=self._act)(x)  # [6400,41,41,32]
     # print("stage1:", x.shape)
@@ -131,7 +132,7 @@ class ConvEncoder(tools.Module):
     # print("stage4:", x.shape)
     x = self.get('h5', tfkl.Conv2D, filters=8 * self._depth, kernel_size=2, strides=1, activation=self._act)(x)   # [6400,2,2,256]
     # print("stage5:", x.shape)
-    shape = tf.concat([tf.shape(obs[self._imageview])[:-3], [32 * self._depth]], 0)  # =[128,50,1024]
+    shape = tf.concat([tf.shape(obs[self._cameraview])[:-3], [32 * self._depth]], 0)  # =[128,50,1024]
 
     # converts each image in a batch to 1024-dim vector
     return tf.reshape(x, shape)  # [128,50,1024]
@@ -161,6 +162,35 @@ class ConvDecoder(tools.Module):
     mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0)) # [128,50,84,84,3]
     # print("stage7:", mean.shape)
     return tfd.Independent(tfd.Normal(mean, 1), len(self._shape))
+
+
+class DenseEncoder(tools.Module):
+  def __init__(self, out_units, num_layers, hidden_units, activation=tf.nn.relu, cameraview="agentview_image"):
+    self._activation = activation
+    self._out_units = out_units
+    self._hidden_units = hidden_units
+    self._num_layers = num_layers
+    self._cameraview = cameraview
+
+  def __call__(self, obs):
+    proprio_obs = []
+    for k, v in obs.items():
+      if k not in [self._cameraview, 'action', 'reward']:
+        # print(v.shape)
+        proprio_obs.append(v)
+    # print("Before:", proprio_obs)
+    x = proprio_obs[0]
+    for i in range(1, len(proprio_obs)):
+      x = tf.concat([x, proprio_obs[i]], axis=-1)
+    # print("after:", new_obs)
+
+    for i in range(self._num_layers):
+      x = self.get(f'h{i}', tfkl.Dense, units=self._hidden_units, activation=self._activation)(x)
+    x = self.get(f'hout', tfkl.Dense, units=self._out_units)(x)
+    # print("final:", x.shape)
+
+    shape = tf.concat([tf.shape(obs[self._cameraview])[:-3], [self._out_units]], 0)
+    return tf.reshape(x, shape)
 
 
 class DenseDecoder(tools.Module):
@@ -194,20 +224,23 @@ class DenseDecoder(tools.Module):
 
 class ActionDecoder(tools.Module):
   def __init__(self, size, layers, units, dist='tanh_normal', act=tf.nn.elu, min_std=1e-4, init_std=5, mean_scale=5):
-    self._size = size
-    self._layers = layers
-    self._units = units
-    self._dist = dist
-    self._act = act
-    self._min_std = min_std
-    self._init_std = init_std
-    self._mean_scale = mean_scale
+    self._size = size   # 7
+    self._layers = layers  # 4
+    self._units = units  # 400
+    self._dist = dist   # 'tanh_normal'
+    self._act = act    # ELU
+    self._min_std = min_std    # 1e-4
+    self._init_std = init_std   # 5
+    self._mean_scale = mean_scale  # 5
 
   def __call__(self, features):
     raw_init_std = np.log(np.exp(self._init_std) - 1)
-    x = features
+    x = features   # [6272 or 128,50, 200(deter)+30(stoch)=230]
+    # print("action decoder:", features.shape)
+    
     for index in range(self._layers):
       x = self.get(f'h{index}', tfkl.Dense, units=self._units, activation=self._act)(x)
+    
     if self._dist == 'tanh_normal':
       # https://www.desmos.com/calculator/rcmcf5jwe7
       x = self.get(f'hout', tfkl.Dense, units=2 * self._size)(x)
@@ -223,4 +256,5 @@ class ActionDecoder(tools.Module):
       dist = tools.OneHotDist(x)
     else:
       raise NotImplementedError(dist)
+    
     return dist
