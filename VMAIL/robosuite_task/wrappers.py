@@ -11,10 +11,15 @@ from PIL import Image
 
 
 class RobosuiteTask:
-  def __init__(self, name, horizon=1000, size=(84, 84), camera="agentview"):
+  def __init__(self, name, horizon=1000, size=(84, 84), camview="agentview", use_depth_obs=False, use_object_obs=False, use_tactile_obs=False, use_touch_obs=False):
     domain, task = name.split('_', 1)
     self._size = size
-    self._imageview = camera+'_image'
+    self._camview_rgb = camview+'_image'
+    self._camview_depth = camview+'_depth'
+    self._use_object_obs = use_object_obs
+    self._use_depth_obs = use_depth_obs
+    self._use_tactile_obs = use_tactile_obs
+    self._use_touch_obs = use_touch_obs
 
     if isinstance(domain, str):
       import robosuite as suite
@@ -23,22 +28,26 @@ class RobosuiteTask:
 
       # load default controller parameters for Operational Space Control (OSC)
       controller_config = load_controller_config(default_controller="OSC_POSE")
+
+      # create a robosuite environment to visualize on-screen
       self._env = suite.make(
           env_name=domain, 
           robots="Panda", 
+          gripper_types="default",
           controller_configs=controller_config,
           reward_shaping=True, 
           has_renderer=False, 
           has_offscreen_renderer=True, 
           use_camera_obs=True, 
-          use_object_obs=True,
+          use_object_obs=self._use_object_obs,
+          camera_depths=self._use_depth_obs,
           control_freq=20, 
           horizon=horizon, 
-          camera_names=camera, 
-          camera_heights=size[0], 
-          camera_widths=size[1], 
-          use_tactile_obs=False,
-          use_touch_obs=True
+          camera_names=camview, 
+          camera_heights=self._size[0], 
+          camera_widths=self._size[1], 
+          use_tactile_obs=self._use_tactile_obs,
+          use_touch_obs=self._use_touch_obs
       )
 
   @property
@@ -48,7 +57,7 @@ class RobosuiteTask:
     for key, value in self._env.observation_spec().items():
       spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
     
-    spaces[self._imageview] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
+    spaces[self._camview_rgb] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     # spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     return gym.spaces.Dict(spaces)
 
@@ -90,10 +99,8 @@ class DeepMindControl:
   def observation_space(self):
     spaces = {}
     for key, value in self._env.observation_spec().items():
-      spaces[key] = gym.spaces.Box(
-          -np.inf, np.inf, value.shape, dtype=np.float32)
-    spaces['image'] = gym.spaces.Box(
-        0, 255, self._size + (3,), dtype=np.uint8)
+      spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
+    spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
     return gym.spaces.Dict(spaces)
 
   @property
@@ -125,9 +132,7 @@ class DeepMindControl:
 class Atari:
   LOCK = threading.Lock()
 
-  def __init__(
-      self, name, action_repeat=4, size=(84, 84), grayscale=True, noops=30,
-      life_done=False, sticky_actions=True):
+  def __init__(self, name, action_repeat=4, size=(84, 84), grayscale=True, noops=30,life_done=False, sticky_actions=True):
     import gym
     version = 0 if sticky_actions else 4
     name = ''.join(word.title() for word in name.split('_'))
@@ -199,8 +204,7 @@ class Atari:
   def _get_obs(self):
     if self._action_repeat > 1:
       np.maximum(self._buffers[0], self._buffers[1], out=self._buffers[0])
-    image = np.array(Image.fromarray(self._buffers[0]).resize(
-        self._size, Image.BILINEAR))
+    image = np.array(Image.fromarray(self._buffers[0]).resize(self._size, Image.BILINEAR))
     image = np.clip(image, 0, 255).astype(np.uint8)
     image = image[:, :, None] if self._grayscale else image
     return {'image': image}
@@ -256,10 +260,9 @@ class Collect:
 
 
 class TimeLimit:
-
   def __init__(self, env, duration):
     self._env = env
-    self._duration = duration
+    self._duration = duration   # `duration`=`time_limit` in `vmail.py`
     self._step = None
 
   def __getattr__(self, name):

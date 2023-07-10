@@ -72,7 +72,7 @@ class RSSM(tools.Module):
 
   def get_distribution(self, state):
     '''
-      state: [128,30] or [128,50,30]
+      state={mean, std, stoch, deter} [128,30] or [128,50,30]
     '''
     # print("inside get_distribution:", state['mean'].shape, state['std'].shape, res)
     return tfd.MultivariateNormalDiag(state['mean'], state['std'])  # tfd object
@@ -81,7 +81,7 @@ class RSSM(tools.Module):
   def obs_step(self, prev_state, prev_action, embed):
     # print("inside rssm obs step")
     prior = self.img_step(prev_state, prev_action)
-    x = tf.concat([prior['deter'], embed], -1)  # [128,1224=1024+200]
+    x = tf.concat([prior['deter'], embed], -1)      # [128,1224=1024+200]
 
     # usual dense connected NN layer
     x = self.get('obs1', tfkl.Dense, units=self._hidden_size, activation=self._activation)(x)  # [128,200]
@@ -110,17 +110,26 @@ class RSSM(tools.Module):
 
 
 class ConvEncoder(tools.Module):
-  def __init__(self, depth=32, act=tf.nn.relu, cameraview="agentview_image"):
+  def __init__(self, depth=32, act=tf.nn.relu, camview_rgb="agentview_image", camview_depth="agentview_depth", use_depth_obs=False):
     self._act = act      # ReLU
     self._depth = depth   # 32
-    self._cameraview = cameraview
-    # print("inside convencoder:", self._act, self._depth, self._cameraview)
+    self._camview_rgb = camview_rgb
+    self._camview_depth = camview_depth
+    self._use_depth_obs = use_depth_obs
+    # print("inside convencoder:", self._act, self._depth, self._camview_rgb)
 
   def __call__(self, obs):
-    # kwargs = dict(strides=2, activation=self._act)
-    # print("stage-0:", obs[self._cameraview].shape)     # [128,50,84,84,3]
-    # print("stage-01:", tuple(obs[self._cameraview].shape[-3:]))   # [84,84,3]
-    x = tf.reshape(obs[self._cameraview], (-1,) + tuple(obs[self._cameraview].shape[-3:]))  # [6400,84,84,3]
+    # print("stage-0:", obs[self._camview_rgb].shape)     # [128,50,84,84,3]
+    # print("stage-1:", tuple(obs[self._camview_rgb].shape[-3:]))   # [84,84,3]
+    # print("stage-2:", obs[self._camview_depth].shape)      # [128,50,84,84,1]
+  
+    rgb = tf.reshape(obs[self._camview_rgb], (-1,) + tuple(obs[self._camview_rgb].shape[-3:]))  # [6400,84,84,3]
+    if self._use_depth_obs:
+      depth = tf.reshape(obs[self._camview_depth], (-1,) + tuple(obs[self._camview_depth].shape[-3:]))  # [6400,84,84,1]
+      x = tf.concat([rgb, depth], axis=-1)      # [6400,84,84,4]
+    else:
+      x = rgb
+
     # print("stage0:", x.shape)
     x = self.get('h1', tfkl.Conv2D, filters=1 * self._depth, kernel_size=4, strides=2, activation=self._act)(x)  # [6400,41,41,32]
     # print("stage1:", x.shape)
@@ -132,17 +141,18 @@ class ConvEncoder(tools.Module):
     # print("stage4:", x.shape)
     x = self.get('h5', tfkl.Conv2D, filters=8 * self._depth, kernel_size=2, strides=1, activation=self._act)(x)   # [6400,2,2,256]
     # print("stage5:", x.shape)
-    shape = tf.concat([tf.shape(obs[self._cameraview])[:-3], [32 * self._depth]], 0)  # =[128,50,1024]
+    shape = tf.concat([tf.shape(obs[self._camview_rgb])[:-3], [32 * self._depth]], 0)  # =[128,50,1024]
 
     # converts each image in a batch to 1024-dim vector
     return tf.reshape(x, shape)  # [128,50,1024]
 
 
 class ConvDecoder(tools.Module):
-  def __init__(self, depth=32, act=tf.nn.relu, shape=(84, 84, 3)):
-    self._act = act   # Relu
+  def __init__(self, depth=32, act=tf.nn.relu, shape=(84, 84, 3), use_depth_obs=False):
+    self._act = act   # ReLU
     self._depth = depth  # 32
-    self._shape = shape  # [84,84,3]
+    self._use_depth_obs = use_depth_obs
+    self._shape = shape if self._use_depth_obs == False else (84,84,4)  # [84,84,3/4]
 
   def __call__(self, features):
     # kwargs = dict(strides=2, activation=self._act)
@@ -157,39 +167,41 @@ class ConvDecoder(tools.Module):
     # print("Stage4:", x.shape)
     x = self.get('h4', tfkl.Conv2DTranspose, filters=1 * self._depth, kernel_size=4, strides=2, activation=self._act)(x)  # [6400,40,40,32]
     # print("Stage5:", x.shape)
-    x = self.get('h5', tfkl.Conv2DTranspose, filters=self._shape[-1], kernel_size=6, strides=2)(x)  # [6400,84,84,3]
+    x = self.get('h5', tfkl.Conv2DTranspose, filters=self._shape[-1], kernel_size=6, strides=2)(x)  # [6400,84,84,4]
     # print("Stage6:", x.shape)
-    mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0)) # [128,50,84,84,3]
+    mean = tf.reshape(x, tf.concat([tf.shape(features)[:-1], self._shape], 0))    # [128,50,84,84,4]
     # print("stage7:", mean.shape)
     return tfd.Independent(tfd.Normal(mean, 1), len(self._shape))
 
 
 class DenseEncoder(tools.Module):
-  def __init__(self, out_units, num_layers, hidden_units, activation=tf.nn.relu, cameraview="agentview_image"):
+  def __init__(self, out_units=32, num_layers=2, hidden_units=100, activation=tf.nn.relu, camview_rgb="agentview_image", camview_depth="agentview_depth"):
     self._activation = activation
     self._out_units = out_units
     self._hidden_units = hidden_units
     self._num_layers = num_layers
-    self._cameraview = cameraview
+    self._camview_rgb = camview_rgb
+    self._camview_depth = camview_depth
 
   def __call__(self, obs):
+    dtype = prec.global_policy().compute_dtype
     proprio_obs = []
-    for k, v in obs.items():
-      if k not in [self._cameraview, 'action', 'reward']:
-        # print(v.shape)
-        proprio_obs.append(v)
+    # for k, v in obs.items():
+    #   # obs[k] = tf.cast(v, dtype)
+    #   if k not in [self._camview_rgb, self._camview_depth, 'action', 'reward', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_eef_to_cube_yaw']:
+    #     # print(v.shape)
+    #     proprio_obs.append(tf.cast(v, dtype))
+    proprio_obs.append(tf.cast(obs['robot0_proprio-state'], dtype))
     # print("Before:", proprio_obs)
-    x = proprio_obs[0]
-    for i in range(1, len(proprio_obs)):
-      x = tf.concat([x, proprio_obs[i]], axis=-1)
-    # print("after:", new_obs)
+    x = tf.concat(proprio_obs, axis=-1)
+    # print("after:", x.shape)
 
     for i in range(self._num_layers):
       x = self.get(f'h{i}', tfkl.Dense, units=self._hidden_units, activation=self._activation)(x)
     x = self.get(f'hout', tfkl.Dense, units=self._out_units)(x)
     # print("final:", x.shape)
 
-    shape = tf.concat([tf.shape(obs[self._cameraview])[:-3], [self._out_units]], 0)
+    shape = tf.concat([tf.shape(obs[self._camview_rgb])[:-3], [self._out_units]], 0)  # [128,50,32]
     return tf.reshape(x, shape)
 
 

@@ -45,7 +45,8 @@ def eplen(episode):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230531-1000/', type=str)
+# parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230531-1000/', type=str)
+parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230628T100110-robot0_eye_in_hand-100/expert_data/', type=str)
 args = parser.parse_args()
 
 directory = pathlib.Path(args.path)

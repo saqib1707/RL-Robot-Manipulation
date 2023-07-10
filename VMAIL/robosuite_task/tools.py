@@ -80,6 +80,8 @@ def video_summary(name, video, step=None, fps=20):
 def encode_gif(frames, fps):
   from subprocess import Popen, PIPE
   h, w, c = frames[0].shape
+  if c == 4:
+    c = 3
   pxfmt = {1: 'gray', 3: 'rgb24'}[c]
   cmd = ' '.join([
       f'ffmpeg -y -f rawvideo -vcodec rawvideo',
@@ -88,7 +90,7 @@ def encode_gif(frames, fps):
       f'-r {fps:.02f} -f gif -'])
   proc = Popen(cmd.split(' '), stdin=PIPE, stdout=PIPE, stderr=PIPE)
   for image in frames:
-    proc.stdin.write(image.tostring())
+    proc.stdin.write(image[:,:,:3].tostring())
   out, err = proc.communicate()
   if proc.returncode:
     raise IOError('\n'.join([' '.join(cmd), err.decode('utf8')]))
@@ -140,6 +142,7 @@ def count_episodes(directory):
 
 
 def save_episodes(directory, episodes):
+  # print("Inside save directory", directory)
   directory = pathlib.Path(directory).expanduser()
   directory.mkdir(parents=True, exist_ok=True)
   timestamp = datetime.datetime.now().strftime('%Y%m%dT%H%M%S')
@@ -154,7 +157,8 @@ def save_episodes(directory, episodes):
         f2.write(f1.read())
 
 
-def load_episodes(directory, rescan, length=None, balance=False, seed=0):
+def load_episodes(directory, rescan, batch_length=None, balance=False, seed=0):
+  print("Inside load directory:", directory)
   directory = pathlib.Path(directory).expanduser()
   random = np.random.RandomState(seed)
   cache = {}
@@ -175,12 +179,15 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
           print(f'Could not load episode: {e}')
           continue
         cache[filename] = episode
-    keys = list(cache.keys())
-    for index in random.choice(len(keys), rescan):
+    
+    keys = list(cache.keys())   # keys are filenames
+    # print("Inside load_episodes:", keys)
+    for index in random.choice(len(keys), rescan):  # generates `rescan` random integers in [0,len(keys)] 
       episode = cache[keys[index]]
-      if length:
-        total = len(next(iter(episode.values())))
-        available = total - length
+      if batch_length:
+        total = len(next(iter(episode.values())))   # 101
+        available = total - batch_length            # 101-50=51
+        # print("total, available:", total, available)
         if available < 1:
           print(f'Skipped short episode of length {available}.')
           continue
@@ -188,7 +195,10 @@ def load_episodes(directory, rescan, length=None, balance=False, seed=0):
           index = min(random.randint(0, total), available)
         else:
           index = int(random.randint(0, available))
-        episode = {k: v[index: index + length] for k, v in episode.items()}
+        
+        # for each episode, sample a random segment of length batch_length=50
+        episode = {k: v[index:index + batch_length] for k, v in episode.items()}
+      
       yield episode
 
 
