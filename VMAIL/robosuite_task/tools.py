@@ -157,12 +157,36 @@ def save_episodes(directory, episodes):
         f2.write(f1.read())
 
 
-def load_episodes(directory, rescan, batch_length=None, balance=False, seed=0):
+def load_episodes(directory, rescan, batch_length=None, balance=False, seed=0, config=None):
   print("Inside load directory:", directory)
   directory = pathlib.Path(directory).expanduser()
   random = np.random.RandomState(seed)
   cache = {}
-  # removed_keys = ['cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat']
+
+  relevant_keys = ["reward", "action"]
+  if config.use_camera_obs == True:
+    relevant_keys.append(config.camera_names + "_image")
+    if config.use_depth_obs == True:
+      relevant_keys.append(config.camera_names + "_depth")
+  if config.use_object_obs == True:
+    relevant_keys.append("cube_pos")
+    relevant_keys.append("cube_quat")
+    relevant_keys.append("cube_to_robot0_eef_pos")
+    relevant_keys.append("cube_to_robot0_eef_quat")
+    relevant_keys.append("robot0_eef_to_cube_yaw")
+    relevant_keys.append("object-state")
+  if config.use_proprio_obs == True:
+    relevant_keys.append("robot0_joint_pos_cos")
+    relevant_keys.append("robot0_joint_pos_sin")
+    relevant_keys.append("robot0_joint_vel")
+    relevant_keys.append("robot0_eef_pos")
+    relevant_keys.append("robot0_eef_quat")
+    relevant_keys.append("robot0_gripper_qpos")
+    relevant_keys.append("robot0_gripper_qvel")
+    relevant_keys.append("robot0_proprio-state")
+  if config.use_touch_obs == True:
+    relevant_keys.append("robot0_touch")
+    relevant_keys.append("robot0_touch-state")
   
   while True:
     for filename in directory.glob('*.npz'):
@@ -170,11 +194,14 @@ def load_episodes(directory, rescan, batch_length=None, balance=False, seed=0):
         try:
           with filename.open('rb') as f:
             raw_episode = np.load(f)
-            # episode = {}
-            # for k, v in raw_episode.items():
-            #   if k not in removed_keys:
-            #     episode[k] = v
-            episode = {k: raw_episode[k] for k in raw_episode.keys()}
+            episode = {}
+            for k, v in raw_episode.items():
+              if k in relevant_keys:
+                if v.dtype == 'float64':
+                  episode[k] = v.astype('float32')
+                else:
+                  episode[k] = v
+            # episode = {k: raw_episode[k] for k in raw_episode.keys()}
         except Exception as e:
           print(f'Could not load episode: {e}')
           continue

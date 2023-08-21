@@ -32,7 +32,7 @@ numba==0.56.4
 numpy==1.23.5
 nvidia-cublas-cu11==11.10.3.66
 
-# works for sacae
+# works for sacae BUT NOT for vmail
 # nvidia-cuda-nvrtc-cu11==11.7.99
 # nvidia-cuda-runtime-cu11==11.7.99
 # nvidia-cudnn-cu11==8.5.0.96
@@ -90,3 +90,4 @@ wandb
 colorlog
 # mpi4py
 # pybullet==1.9.5
+plotly==2.7.0

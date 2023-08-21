@@ -11,11 +11,12 @@ from PIL import Image
 
 
 class RobosuiteTask:
-  def __init__(self, name, horizon=1000, size=(84, 84), camview="agentview", use_depth_obs=False, use_object_obs=False, use_tactile_obs=False, use_touch_obs=False):
+  def __init__(self, name, horizon=1000, size=(84, 84), camview="agentview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True):
     domain, task = name.split('_', 1)
     self._size = size
     self._camview_rgb = camview+'_image'
     self._camview_depth = camview+'_depth'
+    self._use_camera_obs = use_camera_obs
     self._use_object_obs = use_object_obs
     self._use_depth_obs = use_depth_obs
     self._use_tactile_obs = use_tactile_obs
@@ -38,7 +39,7 @@ class RobosuiteTask:
           reward_shaping=True, 
           has_renderer=False, 
           has_offscreen_renderer=True, 
-          use_camera_obs=True, 
+          use_camera_obs=self._use_camera_obs, 
           use_object_obs=self._use_object_obs,
           camera_depths=self._use_depth_obs,
           control_freq=20, 

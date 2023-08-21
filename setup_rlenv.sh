@@ -14,11 +14,11 @@ pip3 install -e ./
 cd ../
 python3 /home/envs/rlenv/lib/python3.8/site-packages/robosuite/scripts/setup_macros.py
 
-# # install modified stable-baselines3 from source
+# install modified stable-baselines3 from source
 # cd LAPAL/stable-baselines3/
 # pip3 install -e .
 
-# # install LAPAL
+# install LAPAL
 # cd ..
 # pip3 install -e .
 

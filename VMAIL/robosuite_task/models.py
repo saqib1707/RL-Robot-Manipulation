@@ -41,8 +41,7 @@ class RSSM(tools.Module):
     embed = tf.transpose(embed, [1, 0, 2])   # [50,128,1024]
     action = tf.transpose(action, [1, 0, 2])  # [50,128,7]
     # print("after shape:", embed.shape, action.shape)
-    post, prior = tools.static_scan(lambda prev, inputs: self.obs_step(prev[0], *inputs), (action, embed), (state, state))
-    # prior.keys = post.keys = [mean, std, stoch, deter]
+    post, prior = tools.static_scan(lambda prev, inputs: self.obs_step(prev[0], *inputs), (action, embed), (state, state))     # prior.keys = post.keys = [mean, std, stoch, deter]
     post = {k: tf.transpose(v, [1, 0, 2]) for k, v in post.items()}
     prior = {k: tf.transpose(v, [1, 0, 2]) for k, v in prior.items()}
     return post, prior
@@ -65,15 +64,10 @@ class RSSM(tools.Module):
     return prior
 
   def get_feat(self, state):
-    '''
-      concatenates the stochastic and deterministic part of state
-    '''
-    return tf.concat([state['stoch'], state['deter']], -1)
+    return tf.concat([state['stoch'], state['deter']], -1)    # concatenates the stochastic and deterministic part of state
 
   def get_distribution(self, state):
-    '''
-      state={mean, std, stoch, deter} [128,30] or [128,50,30]
-    '''
+    # state={mean, std, stoch, deter} [128,30] or [128,50,30]
     # print("inside get_distribution:", state['mean'].shape, state['std'].shape, res)
     return tfd.MultivariateNormalDiag(state['mean'], state['std'])  # tfd object
 
@@ -122,7 +116,6 @@ class ConvEncoder(tools.Module):
     # print("stage-0:", obs[self._camview_rgb].shape)     # [128,50,84,84,3]
     # print("stage-1:", tuple(obs[self._camview_rgb].shape[-3:]))   # [84,84,3]
     # print("stage-2:", obs[self._camview_depth].shape)      # [128,50,84,84,1]
-  
     rgb = tf.reshape(obs[self._camview_rgb], (-1,) + tuple(obs[self._camview_rgb].shape[-3:]))  # [6400,84,84,3]
     if self._use_depth_obs:
       depth = tf.reshape(obs[self._camview_depth], (-1,) + tuple(obs[self._camview_depth].shape[-3:]))  # [6400,84,84,1]
@@ -175,23 +168,24 @@ class ConvDecoder(tools.Module):
 
 
 class DenseEncoder(tools.Module):
-  def __init__(self, out_units=32, num_layers=2, hidden_units=100, activation=tf.nn.relu, camview_rgb="agentview_image", camview_depth="agentview_depth"):
+  def __init__(self, out_units=32, num_layers=1, hidden_units=32, activation=tf.nn.relu, camview_rgb="agentview_image"):
     self._activation = activation
     self._out_units = out_units
     self._hidden_units = hidden_units
     self._num_layers = num_layers
     self._camview_rgb = camview_rgb
-    self._camview_depth = camview_depth
+    # self._camview_depth = camview_depth
 
   def __call__(self, obs):
     dtype = prec.global_policy().compute_dtype
     proprio_obs = []
     # for k, v in obs.items():
-    #   # obs[k] = tf.cast(v, dtype)
     #   if k not in [self._camview_rgb, self._camview_depth, 'action', 'reward', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_eef_to_cube_yaw']:
     #     # print(v.shape)
     #     proprio_obs.append(tf.cast(v, dtype))
     proprio_obs.append(tf.cast(obs['robot0_proprio-state'], dtype))
+    proprio_obs.append(tf.cast(obs['object-state'], dtype))
+    proprio_obs.append(tf.cast(obs['robot0_touch-state'], dtype))
     # print("Before:", proprio_obs)
     x = tf.concat(proprio_obs, axis=-1)
     # print("after:", x.shape)
@@ -229,7 +223,7 @@ class DenseDecoder(tools.Module):
       temp3 = tfd.Independent(temp1, temp2)
       # print("stage3:", temp1, temp2, temp3)
       return temp3
-    if self._distribution == 'binary':
+    elif self._distribution == 'binary':
       return tfd.Independent(tfd.Bernoulli(logits = x), len(self._shape)), x
     raise NotImplementedError(self._distribution)
 

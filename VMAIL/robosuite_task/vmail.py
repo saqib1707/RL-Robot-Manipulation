@@ -34,7 +34,7 @@ def define_config():
   config = tools.AttrDict()
 
   # General.
-  config.basedir = 'log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
+  config.basedir = 'logs/log_'+utc_dt.strftime('%Y%m%d_%H%M%S')
   config.logdir = pathlib.Path(config.basedir+'/logdir')
   config.model_datadir = pathlib.Path(config.basedir+'/model_data')   # what is model data directory for ?
   config.policy_datadir = pathlib.Path(config.basedir+'/policy_data')  # what is policy data directory for ?
@@ -53,10 +53,14 @@ def define_config():
   config.task = 'robosuite_Lift_pick'
   config.camera_names = 'agentview'
   config.envs = 1
-  config.use_depth_obs = True
-  config.use_tactile_obs = False
-  config.use_touch_obs = True
+
+  config.use_camera_obs = True
+  config.use_depth_obs = False
   config.use_object_obs = True
+  config.use_proprio_obs = True
+  config.use_touch_obs = True
+  config.use_tactile_obs = False
+
   config.parallel = 'none'
   config.action_repeat = 1
   config.time_limit = 1000
@@ -71,7 +75,7 @@ def define_config():
   config.num_units = 400
   config.dense_act = 'elu'
   config.cnn_act = 'relu'
-  config.cnn_depth = 32 if config.use_depth_obs == False else 40
+  config.cnn_depth = 32 if config.use_depth_obs == False else 32
   config.pcont = False    # what is pcont ??
   config.free_nats = 3.0  # what is free nats ??
   config.alpha = 1.0
@@ -81,8 +85,8 @@ def define_config():
   config.weight_decay_pattern = r'.*'
 
   # Dense Encoder for Proprioceptive observations
-  config.hidden_units = 16
-  config.out_units = 8
+  config.hidden_units = 32
+  config.out_units = 32
 
   # Training.
   config.batch_size = 128
@@ -138,10 +142,8 @@ class VMAIL(tools.Module):
     
     with self._strategy.scope():
       # create tensorflow python distributed iterator objects
-      self._model_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(model_datadir, self._c)))
-      self._expert_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(expert_datadir, self._c)))
-      # print("self._model_dataset:", self._model_dataset)
-      # print("self._expert_dataset:", self._expert_dataset)
+      self._model_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(model_datadir, self._c)))  # tensorflow.python.distribute.input_lib.DistributedIterator object
+      self._expert_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(expert_datadir, self._c)))  # tensorflow.python.distribute.input_lib.DistributedIterator object
       self._build_model()
 
 
@@ -172,7 +174,7 @@ class VMAIL(tools.Module):
 
 
   @tf.function
-  def policy(self, obs, state, training):
+  def policy(self, obs, state, training=True):
     if state is None:
       latent = self._dynamics.initial(batch_size=len(obs[self._camview_rgb]))
       action = tf.zeros((len(obs[self._camview_rgb]), self._actdim), self._float)
@@ -180,7 +182,7 @@ class VMAIL(tools.Module):
       latent, action = state
     
     embed = self._encode(preprocess(obs, self._c))   # [128,50,1024]
-    if self._c.use_object_obs == True:
+    if self._c.use_proprio_obs == True:
       embed_proprio = self._encode_proprio(obs)        # [128,50,32]
       # print("inside policy (before):", embed.shape, embed_proprio.shape)
       embed = tf.concat([embed, embed_proprio], axis=-1)   # [128,50,1056]
@@ -215,7 +217,7 @@ class VMAIL(tools.Module):
     with tf.GradientTape() as model_tape:
       # compute embedded features for images sampled from policy
       embed = self._encode(model_data)          # [128, 50, 1024]
-      if self._c.use_object_obs == True:
+      if self._c.use_proprio_obs == True:
         embed_proprio = self._encode_proprio(model_data)   # [128, 50, 32]
         # print("inside train (before):", embed.shape, embed_proprio.shape)
         embed = tf.concat([embed, embed_proprio], axis=-1)  # [128,50,1056]
@@ -255,7 +257,7 @@ class VMAIL(tools.Module):
       
       # compute embedded features for images from expert data
       embed_expert = self._encode(expert_data)                   # [128,50,1024]
-      if self._c.use_object_obs == True:
+      if self._c.use_proprio_obs == True:
         embed_expert_proprio = self._encode_proprio(expert_data)   # [128,50,32]
         # print("inside train (before):", embed_expert.shape, embed_expert_proprio.shape)
         embed_expert = tf.concat([embed_expert, embed_expert_proprio], axis=-1)   # [128,50,1056]
@@ -281,11 +283,11 @@ class VMAIL(tools.Module):
 
         disc_penalty_input = alpha * feat_policy_dist + (1.0 - alpha) * temp2
         _, logits = self._discriminator(disc_penalty_input)
-        dsicriminator_variables = tf.nest.flatten([self._discriminator.variables])
-        inner_discriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), dsicriminator_variables)
+        discriminator_variables = tf.nest.flatten([self._discriminator.variables])
+        inner_discriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), discriminator_variables)
         inner_discriminator_norm = tf.linalg.global_norm(inner_discriminator_grads)
         grad_penalty = (inner_discriminator_norm - 1)**2
-          
+
       discriminator_loss = -(expert_loss + policy_loss) + self._c.alpha * grad_penalty
       discriminator_loss /= float(self._strategy.num_replicas_in_sync)
 
@@ -315,12 +317,7 @@ class VMAIL(tools.Module):
 
     if tf.distribute.get_replica_context().replica_id_in_sync_group == 0:
       if self._c.log_scalars:
-        self._scalar_summaries(
-            model_data, feat, prior_dist, post_dist, likes, div, model_loss,
-            tf.reduce_mean(expert_d.mean()), tf.reduce_mean(policy_d.mean()), 
-            tf.reduce_max(tf.reduce_mean(policy_d.mean(), axis = 1)), expert_loss,
-            policy_loss, grad_penalty, discriminator_loss, tf.reduce_mean(reward),
-            value_loss, actor_loss, model_norm, discriminator_norm, value_norm, actor_norm)
+        self._scalar_summaries(model_data, feat, prior_dist, post_dist, likes, div, model_loss, tf.reduce_mean(expert_d.mean()), tf.reduce_mean(policy_d.mean()), tf.reduce_max(tf.reduce_mean(policy_d.mean(), axis = 1)), expert_loss, policy_loss, grad_penalty, discriminator_loss, tf.reduce_mean(reward), value_loss, actor_loss, model_norm, discriminator_norm, value_norm, actor_norm)
       if tf.equal(log_images, True):
         # print("summary:", model_data, embed, image_pred)
         self._image_summaries(model_data, embed, image_pred)
@@ -332,8 +329,10 @@ class VMAIL(tools.Module):
     act = acts[self._c.dense_act]
 
     self._encode = models.ConvEncoder(self._c.cnn_depth, cnn_act, camview_rgb=self._camview_rgb, camview_depth=self._camview_depth, use_depth_obs=self._c.use_depth_obs)
-    if self._c.use_object_obs == True:
-      self._encode_proprio = models.DenseEncoder(self._c.out_units, num_layers=1, hidden_units=self._c.hidden_units, activation=act, camview_rgb=self._camview_rgb, camview_depth=self._camview_depth)
+
+    if self._c.use_proprio_obs == True:
+      self._encode_proprio = models.DenseEncoder(self._c.out_units, num_layers=0, hidden_units=self._c.hidden_units, activation=act, camview_rgb=self._camview_rgb)
+
     self._dynamics = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
     self._decode = models.ConvDecoder(self._c.cnn_depth, cnn_act, use_depth_obs=self._c.use_depth_obs)
     self._reward = models.DenseDecoder((), 2, self._c.num_units, act=act)
@@ -342,7 +341,7 @@ class VMAIL(tools.Module):
     self._actor = models.ActionDecoder(self._actdim, 4, self._c.num_units, self._c.action_dist, init_std=self._c.action_init_std, act=act)
     
     model_modules = [self._encode, self._dynamics, self._decode, self._reward]
-    if self._c.use_object_obs == True:
+    if self._c.use_proprio_obs == True:
       model_modules.append(self._encode_proprio)
 
     if self._c.pcont:
@@ -360,10 +359,8 @@ class VMAIL(tools.Module):
     if training:
       amount = self._c.expl_amount
       if self._c.expl_decay:   # False
-        print("Should not be printed")
         amount *= 0.5 ** (tf.cast(self._step, tf.float32) / self._c.expl_decay)
       if self._c.expl_min:    # False
-        print("Should not be printed")
         amount = tf.maximum(self._c.expl_min, amount)
       self._metrics['expl_amount'].update_state(amount)
     elif self._c.eval_noise:
@@ -394,7 +391,7 @@ class VMAIL(tools.Module):
     flatten = lambda x: tf.reshape(x, [-1] + list(x.shape[2:]))
     start_state = {k: flatten(v) for k, v in post.items()}   # {mean:[6272,30], std:[6272,30], stoch:[6272,30], deter:[6272,200]}
 
-    policy = lambda state: self._actor(tf.stop_gradient(self._dynamics.get_feat(state))).sample()    
+    policy = lambda state: self._actor(tf.stop_gradient(self._dynamics.get_feat(state))).sample()
     
     last_state = start_state
     # print("tf.nest.flatten:", tf.nest.flatten(start_state), tf.nest.flatten(last_state))
@@ -448,12 +445,14 @@ class VMAIL(tools.Module):
   def _image_summaries(self, data, embed, image_pred):
     # print("inside image summaries:", data[self._camview_rgb].shape, data[self._camview_depth].shape, image_pred.mode().shape)
     if self._c.use_depth_obs == True:
-      truth = tf.concat([data[self._camview_rgb][:6] + 0.5, data[self._camview_depth][:6]], axis=-1)   # [6,50,84,84,4]
+      truth = tf.concat([data[self._camview_rgb][:6] + 0.5, data[self._camview_depth][:6] + 0.5], axis=-1)   # [6,50,84,84,4]
     else:
       truth = data[self._camview_rgb][:6] + 0.5       # [6,50,84,84,3]
+    
     recon = image_pred.mode()[:6]   # [6,50,84,84,3/4]
     init, _ = self._dynamics.observe(embed[:6, :5], data['action'][:6, :5])
     init = {k: v[:, -1] for k, v in init.items()}
+    
     prior = self._dynamics.imagine(data['action'][:6, 5:], init)
     openl = self._decode(self._dynamics.get_feat(prior)).mode()
     model = tf.concat([recon[:, :5] + 0.5, openl + 0.5], 1)
@@ -497,8 +496,11 @@ def preprocess(obs, config):
   # print("datatype inside preprocess:", dtype)
   obs = obs.copy()
   with tf.device('cpu:0'):
-    cameraview = config.camera_names+'_image'
-    obs[cameraview] = tf.cast(obs[cameraview], dtype) / 255.0 - 0.5
+    rgb_img_name = config.camera_names+'_image'
+    obs[rgb_img_name] = tf.cast(obs[rgb_img_name], dtype) / 255.0 - 0.5
+    if config.use_depth_obs == True:
+      depth_img_name = config.camera_names + '_depth'
+      obs[depth_img_name] = tf.cast(obs[depth_img_name] - 0.5, dtype)
     clip_rewards = dict(none=lambda x: x, tanh=tf.tanh)[config.clip_rewards]
     obs['reward'] = clip_rewards(obs['reward'])
     for k, v in obs.items():
@@ -511,15 +513,17 @@ def count_steps(datadir, config):
 
 
 def load_dataset(directory, config):
-  episode = next(tools.load_episodes(directory, 1))
-  for k, v in episode.items():
-    # print("This should be printed:", k, v.shape)
-    if v.dtype == 'float64':
-      episode[k] = v.astype('float32')
+  # print("This should be expert directory:", directory)
+  episode = next(tools.load_episodes(directory, 1, config=config))
+  # print("Episode:", episode)
+  # for k, v in episode.items():
+  #   # print(k, ":", v.shape)
+  #   if v.dtype == 'float64':
+  #     episode[k] = v.astype('float32')
   
   types = {k: v.dtype for k, v in episode.items()}
   shapes = {k: (None,) + v.shape[1:] for k, v in episode.items()}
-  generator = lambda: tools.load_episodes(directory, config.train_steps, config.batch_length, config.dataset_balance)
+  generator = lambda: tools.load_episodes(directory, config.train_steps, config.batch_length, config.dataset_balance, config=config)
   dataset = tf.data.Dataset.from_generator(generator, types, shapes)
   dataset = dataset.batch(config.batch_size, drop_remainder=True)
   dataset = dataset.map(functools.partial(preprocess, config=config))
@@ -556,7 +560,15 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
     env = wrappers.Atari(task, config.action_repeat, (64, 64), grayscale=False, life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
   elif suite == 'robosuite':
-    env = wrappers.RobosuiteTask(task, horizon=config.time_limit, camview=config.camera_names, use_depth_obs=config.use_depth_obs, use_object_obs=config.use_object_obs, use_touch_obs=config.use_touch_obs, use_tactile_obs=config.use_tactile_obs)
+    env = wrappers.RobosuiteTask(task, 
+                                horizon=config.time_limit, 
+                                camview=config.camera_names, 
+                                use_camera_obs=config.use_camera_obs, 
+                                use_depth_obs=config.use_depth_obs, 
+                                use_object_obs=config.use_object_obs, 
+                                use_touch_obs=config.use_touch_obs, 
+                                use_tactile_obs=config.use_tactile_obs
+                                )
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
   else:
@@ -653,6 +665,7 @@ def main(config):
     state = tools.simulate(agent, train_envs, steps, state=state)
     step = count_steps(policy_datadir, config)
     agent.save(config.logdir / 'variables.pkl')
+  
   for env in train_envs + test_envs:
     env.close()
 
