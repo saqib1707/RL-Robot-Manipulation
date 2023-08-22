@@ -45,7 +45,9 @@ def eplen(episode):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230820T115652-robot0_eye_in_hand-250/expert_data/', type=str)
+# parser.add_argument('--path', default='robosuite_expert/Lift/Panda/OSC_POSE/20230820T115652-robot0_eye_in_hand-250/expert_data/', type=str)
+
+parser.add_argument('--path', default='robosuite_expert/PickPlaceBread/Panda/OSC_POSE/20230708T195625-frontview-250/expert_data/', type=str)
 args = parser.parse_args()
 
 directory = pathlib.Path(args.path)
@@ -75,6 +77,12 @@ for filename in filenames:
         #     print(k, np.unique(v))
     break
 
+print("Displaying min and max of depth images")
+index = 1
+for filename in filenames:
+    depth_img = episodes[str(filename)]["frontview_depth"]
+    print(index, depth_img.min(), depth_img.max())
+    index += 1
 
 # stitch the images in an episode from expert data and store in a video for visualization
 # print("Visualize the expert data images")
