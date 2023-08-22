@@ -4,7 +4,8 @@ import os
 import torch
 from torch import multiprocessing as mp
 
-from irb120 import IRB120Env
+# from irb120 import IRB120Env
+from Panda import RobosuiteEnv
 from model import ActorCritic
 from optim import SharedRMSprop
 from train import train
@@ -78,12 +79,12 @@ if __name__ == "__main__":
     print(" " * 26 + "Options")
     for k, v in vars(args).items():
         print(" " * 26 + k + ": " + str(v))
-    args.env = "irb120"
+    # args.env = "irb120"
+    # args.env = ""
     args.non_rgb_state_size = 0
     torch.manual_seed(args.seed)
     mp.set_start_method("spawn")
-    # Global shared counter
-    T = Counter()
+    T = Counter()     # Global shared counter
 
     # Results directory
     if not os.path.exists("results"):
@@ -92,35 +93,40 @@ if __name__ == "__main__":
         raise OSError("results dir exists and overwrite flag not passed")
 
     # Instantiate the environment
-    env = IRB120Env(
-        args.width,
-        args.height,
-        args.frame_skip,
-        args.rewarding_distance,
-        args.control_magnitude,
-        args.reward_continuous,
-        args.max_episode_length,
-    )
+    # env = IRB120Env(
+    #     args.width,
+    #     args.height,
+    #     args.frame_skip,
+    #     args.rewarding_distance,
+    #     args.control_magnitude,
+    #     args.reward_continuous,
+    #     args.max_episode_length,
+    # )
 
-    # Create the share network
+    task = "Lift_task"
+    env = RobosuiteEnv(task, horizon=args.max_episode_length)
+
+    # Create the shared network
     shared_model = ActorCritic(args.hidden_size)
     shared_model.share_memory()
+    
     # Load the model if needed
     if args.model and os.path.isfile(args.model):
-        # Load pretrained weights
-        shared_model.load_state_dict(torch.load(args.model))
+        shared_model.load_state_dict(torch.load(args.model))    # Load pretrained weights
     # Create optimiser for the shared network parameters with shared statistics
     optimiser = SharedRMSprop(shared_model.parameters(), lr=args.lr, alpha=args.rmsprop_decay)
     optimiser.share_memory()
 
     # Start validation agent
+    print("Start Validation")
     processes = []
     p = mp.Process(target=test, args=(0, args, T, shared_model))
     p.start()
     processes.append(p)
+    
     # Start training agents
     if not args.evaluate:
-        print("Training")
+        print("Start Training")
         for rank in range(1, args.num_processes + 1):
             p = mp.Process(target=train, args=(rank, args, T, shared_model, optimiser))
             p.start()

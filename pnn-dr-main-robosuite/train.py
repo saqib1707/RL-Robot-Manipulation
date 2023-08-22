@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+import numpy as np
 import torch
 from torch import nn
 from torch.autograd import Variable
 
-from irb120 import IRB120Env
+# from irb120 import IRB120Env
+from Panda import RobosuiteEnv
 from model import ActorCritic
 from utils import state_to_tensor
 
@@ -119,64 +121,69 @@ def train(rank, args, T, shared_model, optimiser):
         optimiser (optim.SharedRMSprop): network optimiser.
     """
     # Instantiate the environment
-    env = IRB120Env(
-        args.width,
-        args.height,
-        args.frame_skip,
-        args.rewarding_distance,
-        args.control_magnitude,
-        args.reward_continuous,
-        args.max_episode_length,
-    )
+    # env = IRB120Env(
+    #     args.width,
+    #     args.height,
+    #     args.frame_skip,
+    #     args.rewarding_distance,
+    #     args.control_magnitude,
+    #     args.reward_continuous,
+    #     args.max_episode_length,
+    # )
 
-    env.seed(args.seed + rank)
+    task = "Lift_task"
+    env = RobosuiteEnv(task, horizon=args.max_episode_length)
+    # env.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)
     
     # Instantiate the model
     model = ActorCritic(args.hidden_size)
     model.train()
     
-    # Losses list
-    loss_values = []
-    # Thread step counter
-    t = 1
+    loss_values = []     # Losses list
+    t = 1                # Thread step counter
     # Start new episode
     done = True
+    
     # Start training
     while T.value() <= args.T_max - 1:
         # print("Inside outer while")
-        # Sync with shared model at least every t_max steps
-        model.load_state_dict(shared_model.state_dict())
-        # Get starting timestep
-        t_start = t
+        model.load_state_dict(shared_model.state_dict())    # Sync with shared model at least every t_max steps
+        t_start = t      # Get starting timestep
         # Reset or pass on hidden state
         if done:
-            hx = Variable(torch.zeros(1, args.hidden_size))
-            cx = Variable(torch.zeros(1, args.hidden_size))
+            hx = Variable(torch.zeros(1, args.hidden_size))    # LSTM hidden state
+            cx = Variable(torch.zeros(1, args.hidden_size))    # LSTM cell state
             # Reset environment and done flag
-            state = state_to_tensor(env.reset())
-            action, reward, done, episode_length = (0, 0, 0, 0, 0, 0), 0, False, 0
+            state = state_to_tensor(env.reset()["agentview_image"])
+            action, reward, done, episode_length = (0, 0, 0, 0, 0, 0, 0), 0, False, 0
         else:
             # Perform truncated backpropagation-through-time (allows freeing buffers after backwards call)
             hx = hx.detach()
             cx = cx.detach()
+        
         # Lists of outputs for training
         policies, Vs, actions, rewards = [], [], [], []
 
         while not done and t - t_start < args.t_max - 1:
             # print("Inside inner while")
             # Calculate policy and value
-            policy, V, (hx, cx) = model(Variable(state[1]), (hx, cx))
+            # policy, V, (hx, cx) = model(Variable(state[1]), (hx, cx))
+            policy, V, (hx, cx) = model(Variable(state), (hx, cx))
+            
             # Sample action
             # Graph broken as loss for stochastic action calculated manually
-
             action = [p.multinomial(num_samples=1).data[0] for p in policy]
-            # Step
-            state, reward, done = env.step(action, episode_length)
-            state = state_to_tensor(state)
+            # state, reward, done = env.step(action, episode_length)    # Step into the environment
+            # print("Action before step:", action)
+            action = np.array(torch.stack(action).squeeze())
+            # print("Action after:", action)
 
-            done = done or episode_length >= args.max_episode_length - 1  # Stop episodes at a max length
-            episode_length += 1  # Increase episode counter
+            state, reward, done = env.step(action)
+            state = state_to_tensor(state["agentview_image"])
+
+            done = done or episode_length >= args.max_episode_length - 1   # Stop episodes at a max length
+            episode_length += 1      # Increase episode counter
             # Save outputs for online training
             [
                 arr.append(el)
@@ -193,7 +200,8 @@ def train(rank, args, T, shared_model, optimiser):
             R = Variable(torch.zeros(1, 1))
         else:
             # R = V(s_i; θ) for non-terminal s
-            _, R, _ = model(Variable(state[1]), (hx, cx))
+            # _, R, _ = model(Variable(state[1]), (hx, cx))
+            _, R, _ = model(Variable(state), (hx, cx))
             R = R.detach()
         Vs.append(R)
 
