@@ -5,47 +5,54 @@ import numpy as np
 import gym
 from gym.utils import seeding
 
-DEFAULT_SIZE = 64
+import robosuite as suite
+# from robosuite.wrappers import GymWrapper
+import robosuite.macros as macros
+from robosuite.controllers import load_controller_config
+from robosuite.wrappers import DomainRandomizationWrapper
+
+# Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio
+# (which uses opencv convention)
+macros.IMAGE_CONVENTION = "opencv"
 
 
 class RobosuiteEnv:
-  def __init__(self, name, horizon=1000, size=(64, 64), camview="agentview", use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True):
-    domain, task = name.split('_', 1)
+  def __init__(self, task="Lift", horizon=1000, size=(84, 84), camviews="bestview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True, reward_shaping=True):
+    # domain, task = name.split('_', 1)
     self._size = size
-    self._camview_rgb = camview+'_image'
-    self._camview_depth = camview+'_depth'
+    self._camview_rgb = camviews+'_image'
+    self._camview_depth = camviews+'_depth'
+    self._use_camera_obs = use_camera_obs
     self._use_object_obs = use_object_obs
     self._use_depth_obs = use_depth_obs
     self._use_tactile_obs = use_tactile_obs
     self._use_touch_obs = use_touch_obs
 
-    if isinstance(domain, str):
-      import robosuite as suite
-      from robosuite.wrappers import GymWrapper
-      from robosuite.controllers import load_controller_config
-
+    if isinstance(task, str):
       # load default controller parameters for Operational Space Control (OSC)
       controller_config = load_controller_config(default_controller="OSC_POSE")
 
       # create a robosuite environment to visualize on-screen
       self._env = suite.make(
-          env_name=domain, 
+          env_name=task, 
           robots="Panda", 
           gripper_types="default",
           controller_configs=controller_config,
-          reward_shaping=True, 
+          reward_shaping=reward_shaping, 
           has_renderer=False, 
           has_offscreen_renderer=True, 
-          use_camera_obs=True, 
+          use_camera_obs=self._use_camera_obs, 
           use_object_obs=self._use_object_obs,
           camera_depths=self._use_depth_obs,
           control_freq=20, 
           horizon=horizon, 
-          camera_names=camview, 
+          camera_names=camviews, 
           camera_heights=self._size[0], 
           camera_widths=self._size[1], 
           use_tactile_obs=self._use_tactile_obs,
-          use_touch_obs=self._use_touch_obs
+          use_touch_obs=self._use_touch_obs,
+          # ignore_done=True,
+          # hard_reset=False,  # TODO: Not setting this flag to False brings up a segfault on macos or glfw error on linux
       )
 
   @property

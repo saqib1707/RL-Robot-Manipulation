@@ -15,9 +15,7 @@ class SharedRMSprop(optim.RMSprop):
             eps (float, optional): term added to the denominator to improve numerical stability. Defaults to 1e-8.
             weight_decay (float, optional): weight decay (L2 penalty) . Defaults to 0.
         """
-        super(SharedRMSprop, self).__init__(
-            params, lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay, momentum=0, centered=False
-        )
+        super(SharedRMSprop, self).__init__(params, lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay, momentum=0, centered=False)
         # State initialization
         for group in self.param_groups:
             for p in group["params"]:

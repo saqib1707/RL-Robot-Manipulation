@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
 import time
-from datetime import datetime
+import numpy as np
+from datetime import datetime, timezone
+import pytz
 import torch
 import cv2
 import matplotlib.pyplot as plt
@@ -10,6 +12,8 @@ import matplotlib.pyplot as plt
 from Panda import RobosuiteEnv
 from model import ActorCritic
 from utils import state_to_tensor, plot_line
+
+tmz = pytz.timezone('US/Pacific')
 
 
 def test(rank, args, T, shared_model):
@@ -22,49 +26,57 @@ def test(rank, args, T, shared_model):
         T (Counter): global shared counter.
         shared_model (model.ActorCritic): current global model.
     """
-    torch.manual_seed(args.seed + rank)
-    # Image size
-    if args.fine_render:
-        args.height = 640
-        args.width = 640
-    
-    # Instantiate the environment
-    # env = IRB120Env(
-    #     args.width,
-    #     args.height,
-    #     args.frame_skip,
-    #     args.rewarding_distance,
-    #     args.control_magnitude,
-    #     args.reward_continuous,
-    #     args.max_episode_length,
-    # )
+    # If fine rendering enabled, increase the image size
+    # if args.fine_render:
+    #     args.height = 84
+    #     args.width = 84
 
-    task = "Lift_pick"
-    env = RobosuiteEnv(task, horizon=args.max_episode_length)
+    camview_rgb = args.camviews + '_image'
+
+    # instantiate the robosuite environment
+    np.random.seed(args.seed + rank)
+    env = RobosuiteEnv(task=args.task, horizon=args.max_episode_length, size=(args.width, args.height), camviews=args.camviews, reward_shaping=args.reward_continuous)
     # env.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)
 
-    # Visualization parameters
+    if args.domain_random == True:
+        # Wrapper that allows for domain randomization mid-simulation.
+        env = DomainRandomizationWrapper(
+            env, 
+            seed=np.random.randint(0,100),
+            randomize_color=False,       # if True, randomize geom colors and texture colors
+            randomize_camera=True,      # if True, randomize camera locations and parameters
+            randomize_lighting=False,    # if True, randomize light locations and properties
+            randomize_dynamics=False,    # if True, randomize dynamics parameters
+            randomize_on_reset=True, 
+            randomize_every_n_steps=0
+        )
+
+    # If fine rendering enabled, Visualization parameters
     if args.fine_render:
-        (_, obs_rgb) = env.reset()
+        # (_, obs_rgb) = env.reset()
+        obs_rgb = env.reset()[camview_rgb]
         plt.ion()
         f, ax = plt.subplots()
         im = ax.imshow(obs_rgb)
 
-    model = ActorCritic(args.hidden_size)    # Instantiate the model
-    model.eval()
+    model = ActorCritic(args.hidden_size, rgb_width=args.width, rgb_height=args.height)    # Instantiate the model
+    model.eval()     # setting the model to evaluation mode
+
     can_test = True    # Test flag
     t_start = 1        # Test step counter to check against global counter
+    
     rewards, steps = [], []        # Rewards and steps for plotting
-    reward_step = []               # Rewards and steps for metrics
-    steps_count = []
+    # reward_step, steps_count = [], []     # Rewards and steps for metrics
+    
     done = True          # Start new episode
-
     while T.value() <= args.T_max - 1:
         if can_test:
             t_start = T.value()     # Reset counter
+            
             # Evaluate over several episodes and average results
             avg_rewards, avg_episode_lengths = [], []
+            
             for _ in range(args.evaluation_episodes):
                 while True:
                     # Reset or pass on hidden state
@@ -73,16 +85,17 @@ def test(rank, args, T, shared_model):
                         with torch.no_grad():
                             hx = torch.zeros(1, args.hidden_size)      # LSTM hidden state
                             cx = torch.zeros(1, args.hidden_size)      # LSTM cell state
+                        
                         # Reset environment and done flag
                         if args.fine_render:
-                            state = state_to_tensor(env.reset()["agentview_image"])
+                            state = state_to_tensor(env.reset()[camview_rgb])
                             # state = state_to_tensor((obs, cv2.resize(obs_rgb, (64, 64))))
                         else:
                             # state = state_to_tensor(env.reset())
-                            state = state_to_tensor(env.reset()["agentview_image"])
+                            state = state_to_tensor(env.reset()[camview_img])
                         
                         action, reward, done, episode_length = (0, 0, 0, 0, 0, 0, 0), 0, False, 0
-                        reward_sum = 0
+                        episode_reward = 0
 
                     # Calculate policy
                     with torch.no_grad():
@@ -97,13 +110,13 @@ def test(rank, args, T, shared_model):
                         state, reward, done = env.step(action)
                         # obs_rgb = state[1]
                         # state = state_to_tensor((state[0], cv2.resize(obs_rgb, (64, 64))))
-                        state = state_to_tensor(state["agentview_image"])
+                        state = state_to_tensor(state[camview_rgb])
 
                     # Save outcomes
-                    reward_step.append(reward)
-                    steps_count.append(episode_length)
+                    # reward_step.append(reward)
+                    # steps_count.append(episode_length)
 
-                    reward_sum += reward
+                    episode_reward += reward
                     done = done or episode_length >= args.max_episode_length - 1    # Stop episodes at a max length
                     episode_length += 1      # Increase episode counter
 
@@ -115,15 +128,16 @@ def test(rank, args, T, shared_model):
 
                     # Log and reset statistics at the end of every episode
                     if done:
-                        avg_rewards.append(reward_sum)
+                        avg_rewards.append(episode_reward)
                         avg_episode_lengths.append(episode_length)
                         break
 
             print("Evaluation during training")
             print(
-                ("[{}] Step: {}   Avg.Reward: {}   Avg.Episode Length:{}").format(
-                    datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3],
+                ("[{}] Step: {}/{}  Avg.Reward: {}   Avg.Episode Length:{}").format(
+                    datetime.now(timezone.utc).astimezone(tmz).strftime('%Y-%m-%d %H:%M:%S'), 
                     t_start,
+                    args.T_max, 
                     sum(avg_rewards) / args.evaluation_episodes,
                     sum(avg_episode_lengths) / args.evaluation_episodes,
                 )
@@ -132,12 +146,10 @@ def test(rank, args, T, shared_model):
             # Keep all evaluations
             rewards.append(avg_rewards)
             steps.append(t_start)
-            # Plot rewards
-            plot_line(steps, rewards)
-            # Checkpoint model params
-            torch.save(model.state_dict(), os.path.join("results", str(t_start) + "_model.pth"))
-            # Finish testing
-            can_test = False
+
+            plot_line(steps, rewards)    # Plot rewards
+            torch.save(model.state_dict(), os.path.join("results", str(t_start) + "_model.pth"))    # Checkpoint model params
+            can_test = False    # Finish testing
 
             if args.evaluate:
                 return

@@ -30,6 +30,12 @@ log_*/
 sacae_orig/logtemp/
 sacae_rs/images/
 sacae_rs_clean/
+RVT/
+cub-1.10.0/
+maple/
+ompl/
+pnn-dr-main/
+pnn-dr-main-robosuite/results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

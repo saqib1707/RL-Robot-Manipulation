@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+import math
 from torch import nn
 from torch.nn import init
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, rgb_width=84, rgb_height=84):
         """
         Model constructor.
 
@@ -12,16 +13,20 @@ class ActorCritic(nn.Module):
             hidden_size (int): Hidden size of LSTM cell.
         """
         super(ActorCritic, self).__init__()
-        self.rgb_state_size = (3, 64, 64)      # Observation shape
+        assert(rgb_width == rgb_height)
+        self.rgb_size = (3, rgb_width, rgb_height)      # Observation shape
         self.action_size = 7
         self.relu = nn.ReLU(inplace=True)
         self.softmax = nn.Softmax(dim=1)
         
         # The archtecture is adapted from Sim2Real (Rusu et. al 2016)
-        self.conv1 = nn.Conv2d(self.rgb_state_size[0], 16, 8, stride=4)
-        self.conv2 = nn.Conv2d(16, 32, 5, stride=2)
-        self.fc1 = nn.Linear(1152, hidden_size)
-        self.lstm = nn.LSTMCell(hidden_size, hidden_size)
+        self.conv1 = nn.Conv2d(in_channels=self.rgb_size[0], out_channels=16, kernel_size=8, stride=4) 
+        size1 = math.floor((rgb_width - (8-1) - 1) / 4 + 1)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=5, stride=2)
+        size2 = math.floor((size1 - (5-1) - 1) / 2 + 1)
+
+        self.fc1 = nn.Linear(in_features=size2 * size2 * 32, out_features=hidden_size)
+        self.lstm = nn.LSTMCell(input_size=hidden_size, hidden_size=hidden_size)
         self.fc_actor1 = nn.Linear(hidden_size, self.action_size)
         self.fc_actor2 = nn.Linear(hidden_size, self.action_size)
         self.fc_actor3 = nn.Linear(hidden_size, self.action_size)
@@ -30,6 +35,7 @@ class ActorCritic(nn.Module):
         self.fc_actor6 = nn.Linear(hidden_size, self.action_size)
         self.fc_actor7 = nn.Linear(hidden_size, self.action_size)
         self.fc_critic = nn.Linear(hidden_size, 1)
+        
         # Orthogonal weight initialization
         for name, p in self.named_parameters():
             if "weight" in name:

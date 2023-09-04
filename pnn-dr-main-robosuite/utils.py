@@ -48,9 +48,20 @@ def state_to_tensor(state):
     #     (torch.from_numpy(state[1].copy())).permute(2, 1, 0).float().div_(255).unsqueeze(0),
     # )
 
-    return (
-        torch.from_numpy(state.copy()).permute(2, 1, 0).float().div_(255).unsqueeze(0)
-    )
+    return torch.from_numpy(state.copy()).permute(2, 1, 0).float().div_(255).unsqueeze(0)
+
+    # print("Before:", state.shape, state.dtype, state.min(), state.max())
+    # tmp1 = torch.from_numpy(state.copy())
+    # print("Tmp1:", tmp1.shape, tmp1.dtype, tmp1.min(), tmp1.max())
+    # tmp2 = tmp1.permute(2,1,0)
+    # print("Tmp2:", tmp2.shape, tmp2.dtype, tmp2.min(), tmp2.max())
+    # tmp3 = tmp2.float()
+    # print("Tmp3:", tmp3.shape, tmp3.dtype, tmp3.min(), tmp3.max())
+    # tmp4 = tmp3.div_(255)
+    # print("Tmp4:", tmp4.shape, tmp4.dtype, tmp4.min(), tmp4.max())
+    # tmp5 = tmp4.unsqueeze(0)
+    # print("Tmp5:", tmp5.shape, tmp5.dtype, tmp5.min(), tmp5.max())
+    # return tmp5
 
 
 def plot_line(xs, ys_population):
