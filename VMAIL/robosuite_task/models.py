@@ -10,7 +10,7 @@ import pdb
 
 
 class RSSM(tools.Module):
-  def __init__(self, stoch=30, deter=200, hidden=200, act=tf.nn.elu):
+  def __init__(self, stoch:int=30, deter:int=200, hidden:int=200, act=tf.nn.elu):
     super().__init__()
     self._activation = act   # ELU
     self._stoch_size = stoch  # 30
@@ -18,43 +18,42 @@ class RSSM(tools.Module):
     self._hidden_size = hidden  # 200
     self._cell = tfkl.GRUCell(self._deter_size)
 
-  def initial(self, batch_size):
-    # print("Inside rssm initial", batch_size)
+  def initialize(self, batch_size):
     dtype = prec.global_policy().compute_dtype  # float32
     return dict(
         mean=tf.zeros([batch_size, self._stoch_size], dtype),
         std=tf.zeros([batch_size, self._stoch_size], dtype),
         stoch=tf.zeros([batch_size, self._stoch_size], dtype),
-        deter=self._cell.get_initial_state(None, batch_size, dtype))
+        deter=self._cell.get_initial_state(None, batch_size, dtype)
+      )
 
   @tf.function
   def observe(self, embed, action, state=None):
-    '''
+    """
       embed: [128,50,1024]
       action: [128,50,7]
-    '''
+    """
     # print("inside rssm observe", embed.shape, action.shape, state)
     if state is None:
       # initialize state
-      state = self.initial(tf.shape(action)[0])   # {mean:[128,30], std:[128,30], stoch:[128,30], deter:[128,200]}
-      # print("state is None:", state) 
+      state = self.initialize(tf.shape(action)[0])   # {mean:[128,30], std:[128,30], stoch:[128,30], deter:[128,200]}
+    
     embed = tf.transpose(embed, [1, 0, 2])   # [50,128,1024]
     action = tf.transpose(action, [1, 0, 2])  # [50,128,7]
-    # print("after shape:", embed.shape, action.shape)
-    post, prior = tools.static_scan(lambda prev, inputs: self.obs_step(prev[0], *inputs), (action, embed), (state, state))     # prior.keys = post.keys = [mean, std, stoch, deter]
-    post = {k: tf.transpose(v, [1, 0, 2]) for k, v in post.items()}
-    prior = {k: tf.transpose(v, [1, 0, 2]) for k, v in prior.items()}
-    return post, prior
+    post_dict, prior_dict = tools.static_scan(lambda prev, inputs: self.obs_step(prev[0], *inputs), (action, embed), (state, state))     # prior.keys = post.keys = [mean, std, stoch, deter]
+
+    post_dict = {k: tf.transpose(v, [1, 0, 2]) for k, v in post_dict.items()}
+    prior_dict = {k: tf.transpose(v, [1, 0, 2]) for k, v in prior_dict.items()}
+    return post_dict, prior_dict
 
   @tf.function
   def imagine(self, action, state=None):
     '''
       action: [6,45,7]
     '''
-    # print("inside rssm imagine")
     if state is None:
       # initialize state
-      state = self.initial(tf.shape(action)[0])
+      state = self.initialize(tf.shape(action)[0])
     
     assert isinstance(state, dict), state
     # print("inside imagine:", action.shape, state)
@@ -73,34 +72,45 @@ class RSSM(tools.Module):
 
   @tf.function
   def obs_step(self, prev_state, prev_action, embed):
-    # print("inside rssm obs step")
-    prior = self.img_step(prev_state, prev_action)
-    x = tf.concat([prior['deter'], embed], -1)      # [128,1224=1024+200]
+    
+    """
+      returns the latent state from the belief dist.
+    """
+    prior_dict = self.img_step(prev_state, prev_action)
+    x = tf.concat([prior_dict['deter'], embed], -1)      # [128,1224=1024+200]
 
     # usual dense connected NN layer
     x = self.get('obs1', tfkl.Dense, units=self._hidden_size, activation=self._activation)(x)  # [128,200]
-    # usual dense connected NN layer
     x = self.get('obs2', tfkl.Dense, units=2 * self._stoch_size, activation=None)(x)  # [128,60]
+    
     mean, std = tf.split(x, num_or_size_splits=2, axis=-1)  # [128,30], [128,30]
     std = tf.nn.softplus(std) + 0.1   # softplus(x) = log(e^x + 1)
+    
     stoch = self.get_distribution({'mean': mean, 'std': std}).sample()  # [128,30]
-    post = {'mean': mean, 'std': std, 'stoch': stoch, 'deter': prior['deter']}
-    return post, prior
+    post_dict = {'mean': mean, 'std': std, 'stoch': stoch, 'deter': prior_dict['deter']}
+    return post_dict, prior_dict
 
   @tf.function
   def img_step(self, prev_state, prev_action):
-    # print("inside rssm img step")
+    """
+      Takes previous state and action at timestep t-1, and produces a dict of prior dist.
+      First, concatenates prev_state and prev_action, passes it through a series of dense 
+      layers to estimate mean and std. 
+    """
     x = tf.concat([prev_state['stoch'], prev_action], -1)
     x = self.get('img1', tfkl.Dense, units=self._hidden_size, activation=self._activation)(x)
     x, deter = self._cell(x, [prev_state['deter']])
     deter = deter[0]  # Keras wraps the state in a list.
+    
     x = self.get('img2', tfkl.Dense, units=self._hidden_size, activation=self._activation)(x)
     x = self.get('img3', tfkl.Dense, units=2 * self._stoch_size, activation=None)(x)
+    
     mean, std = tf.split(x, num_or_size_splits=2, axis=-1)
     std = tf.nn.softplus(std) + 0.1   # softplus(x) = log(e^x + 1)
     stoch = self.get_distribution({'mean': mean, 'std': std}).sample()
-    prior = {'mean': mean, 'std': std, 'stoch': stoch, 'deter': deter}
-    return prior
+    prior_dict = {'mean': mean, 'std': std, 'stoch': stoch, 'deter': deter}
+    
+    return prior_dict
 
 
 class ConvEncoder(tools.Module):

@@ -11,14 +11,12 @@ import robosuite.macros as macros
 from robosuite.controllers import load_controller_config
 from robosuite.wrappers import DomainRandomizationWrapper
 
-# Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio
-# (which uses opencv convention)
+# Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio (which uses opencv convention)
 macros.IMAGE_CONVENTION = "opencv"
 
 
 class RobosuiteEnv:
-  def __init__(self, task="Lift", horizon=1000, size=(84, 84), camviews="bestview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True, reward_shaping=True):
-    # domain, task = name.split('_', 1)
+  def __init__(self, args, task="Lift", horizon=1000, size=(84, 84), camviews="bestview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True, reward_shaping=True):
     self._size = size
     self._camview_rgb = camviews+'_image'
     self._camview_depth = camviews+'_depth'
@@ -39,14 +37,16 @@ class RobosuiteEnv:
           gripper_types="default",
           controller_configs=controller_config,
           reward_shaping=reward_shaping, 
-          has_renderer=False, 
-          has_offscreen_renderer=True, 
+          has_renderer=False,                   # Disable the on-screen renderer 
+          has_offscreen_renderer=True,          # Enable the off-screen renderer (render images without displaying on screen which can significantly improve rendering speed)
           use_camera_obs=self._use_camera_obs, 
           use_object_obs=self._use_object_obs,
           camera_depths=self._use_depth_obs,
           control_freq=20, 
           horizon=horizon, 
           camera_names=camviews, 
+          render_camera=camviews, 
+          render_gpu_device_id=0, 
           camera_heights=self._size[0], 
           camera_widths=self._size[1], 
           use_tactile_obs=self._use_tactile_obs,
@@ -54,6 +54,19 @@ class RobosuiteEnv:
           # ignore_done=True,
           # hard_reset=False,  # TODO: Not setting this flag to False brings up a segfault on macos or glfw error on linux
       )
+
+      if args.domain_random == True:
+        # Wrapper that allows for domain randomization mid-simulation.
+        self._env = DomainRandomizationWrapper(
+            self._env, 
+            seed=args.seed,
+            randomize_color=False,       # if True, randomize geom colors and texture colors
+            randomize_camera=True,      # if True, randomize camera locations and parameters
+            randomize_lighting=False,    # if True, randomize light locations and properties
+            randomize_dynamics=False,    # if True, randomize dynamics parameters
+            randomize_on_reset=True, 
+            randomize_every_n_steps=0
+        )
 
   @property
   def observation_space(self):

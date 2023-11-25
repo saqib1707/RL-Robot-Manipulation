@@ -23,9 +23,7 @@ class PixelEncoder(nn.Module):
         self.num_layers = num_layers
 
         self.num_layers_stride2 = 0
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
-        )
+        self.convs = nn.ModuleList([nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)])
         self.num_layers_stride2 += 1
 
         if obs_shape[1] == 256:
@@ -121,11 +119,6 @@ class IdentityEncoder(nn.Module):
 
 _AVAILABLE_ENCODERS = {'pixel': PixelEncoder, 'identity': IdentityEncoder}
 
-
-def make_encoder(
-    encoder_type, obs_shape, feature_dim, num_layers, num_filters
-):
+def make_encoder(encoder_type, obs_shape, feature_dim, num_layers, num_filters):
     assert encoder_type in _AVAILABLE_ENCODERS
-    return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, feature_dim, num_layers, num_filters
-    )
+    return _AVAILABLE_ENCODERS[encoder_type](obs_shape, feature_dim, num_layers, num_filters)

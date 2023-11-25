@@ -49,16 +49,11 @@ def weight_init(m):
 
 class Actor(nn.Module):
     """MLP actor network."""
-    def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type,
+    def __init__(self, obs_shape, action_shape, hidden_dim, encoder_type,
         encoder_feature_dim, log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
-
-        self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_feature_dim, num_layers,
-            num_filters
-        )
+        self.encoder = make_encoder(encoder_type, obs_shape, encoder_feature_dim, num_layers, num_filters)
 
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -72,18 +67,13 @@ class Actor(nn.Module):
         self.outputs = dict()
         self.apply(weight_init)
 
-    def forward(
-        self, obs, compute_pi=True, compute_log_pi=True, detach_encoder=False
-    ):
+    def forward(self, obs, compute_pi=True, compute_log_pi=True, detach_encoder=False):
         obs = self.encoder(obs, detach=detach_encoder)
-
         mu, log_std = self.trunk(obs).chunk(2, dim=-1)
 
         # constrain log_std inside [log_std_min, log_std_max]
         log_std = torch.tanh(log_std)
-        log_std = self.log_std_min + 0.5 * (
-            self.log_std_max - self.log_std_min
-        ) * (log_std + 1)
+        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         self.outputs['mu'] = mu
         self.outputs['std'] = log_std.exp()
@@ -102,7 +92,6 @@ class Actor(nn.Module):
             log_pi = None
 
         mu, pi, log_pi = squash(mu, pi, log_pi)
-
         return mu, pi, log_pi, log_std
 
     def log(self, L, step, log_freq=LOG_FREQ):
@@ -137,23 +126,13 @@ class QFunction(nn.Module):
 
 class Critic(nn.Module):
     """Critic network, employes two q-functions."""
-    def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type,
-        encoder_feature_dim, num_layers, num_filters
-    ):
+    def __init__(self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_feature_dim, num_layers, num_filters):
         super().__init__()
 
-        self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_feature_dim, num_layers,
-            num_filters
-        )
+        self.encoder = make_encoder(encoder_type, obs_shape, encoder_feature_dim, num_layers, num_filters)
 
-        self.Q1 = QFunction(
-            self.encoder.feature_dim, action_shape[0], hidden_dim
-        )
-        self.Q2 = QFunction(
-            self.encoder.feature_dim, action_shape[0], hidden_dim
-        )
+        self.Q1 = QFunction(self.encoder.feature_dim, action_shape[0], hidden_dim)
+        self.Q2 = QFunction(self.encoder.feature_dim, action_shape[0], hidden_dim)
 
         self.outputs = dict()
         self.apply(weight_init)
@@ -185,7 +164,6 @@ class Critic(nn.Module):
 
 
 class SacAeAgent(object):
-    """SAC+AE algorithm."""
     def __init__(
         self,
         obs_shape,
@@ -242,6 +220,7 @@ class SacAeAgent(object):
             encoder_feature_dim, num_layers, num_filters
         ).to(device)
 
+        # transfer network weights 'state_dict' from 'self.critic' model to 'self.critic_target' model
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # tie encoders between actor and critic
@@ -249,16 +228,14 @@ class SacAeAgent(object):
 
         self.log_alpha = torch.tensor(np.log(init_temperature)).to(device)
         self.log_alpha.requires_grad = True
+        
         # set target entropy to -|A|
         self.target_entropy = -np.prod(action_shape)
 
         self.decoder = None
         if decoder_type != 'identity':
             # create decoder
-            self.decoder = make_decoder(
-                decoder_type, obs_shape, encoder_feature_dim, num_layers,
-                num_filters
-            ).to(device)
+            self.decoder = make_decoder(decoder_type, obs_shape, encoder_feature_dim, num_layers, num_filters).to(device)
             self.decoder.apply(weight_init)
 
             # optimizer for critic encoder for reconstruction loss
@@ -268,9 +245,7 @@ class SacAeAgent(object):
 
             # optimizer for decoder
             self.decoder_optimizer = torch.optim.Adam(
-                self.decoder.parameters(),
-                lr=decoder_lr,
-                weight_decay=decoder_weight_lambda
+                self.decoder.parameters(), lr=decoder_lr, weight_decay=decoder_weight_lambda
             )
 
         # optimizers
@@ -304,9 +279,7 @@ class SacAeAgent(object):
         with torch.no_grad():
             obs = torch.FloatTensor(obs).to(self.device)
             obs = obs.unsqueeze(0)
-            mu, _, _, _ = self.actor(
-                obs, compute_pi=False, compute_log_pi=False
-            )
+            mu, _, _, _ = self.actor(obs, compute_pi=False, compute_log_pi=False)
             return mu.cpu().data.numpy().flatten()
 
     def sample_action(self, obs):
@@ -320,20 +293,18 @@ class SacAeAgent(object):
         with torch.no_grad():
             _, policy_action, log_pi, _ = self.actor(next_obs)
             target_Q1, target_Q2 = self.critic_target(next_obs, policy_action)
-            target_V = torch.min(target_Q1,
-                                 target_Q2) - self.alpha.detach() * log_pi
+            target_V = torch.min(target_Q1, target_Q2) - self.alpha.detach() * log_pi
             target_Q = reward + (not_done * self.discount * target_V)
 
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(obs, action)
-        critic_loss = F.mse_loss(current_Q1,
-                                 target_Q) + F.mse_loss(current_Q2, target_Q)
+        critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
         L.log('train_critic/loss', critic_loss, step)
 
         # Optimize the critic
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
+        self.critic_optimizer.zero_grad()    # zero out the gradients
+        critic_loss.backward()              # backpropagation to compute gradients
+        self.critic_optimizer.step()        # update the parameters
 
         self.critic.log(L, step)
 
@@ -347,8 +318,7 @@ class SacAeAgent(object):
 
         L.log('train_actor/loss', actor_loss, step)
         L.log('train_actor/target_entropy', self.target_entropy, step)
-        entropy = 0.5 * log_std.shape[1] * (1.0 + np.log(2 * np.pi)
-                                            ) + log_std.sum(dim=-1)
+        entropy = 0.5 * log_std.shape[1] * (1.0 + np.log(2 * np.pi)) + log_std.sum(dim=-1)
         L.log('train_actor/entropy', entropy.mean(), step)
 
         # optimize the actor
@@ -359,8 +329,7 @@ class SacAeAgent(object):
         self.actor.log(L, step)
 
         self.log_alpha_optimizer.zero_grad()
-        alpha_loss = (self.alpha *
-                      (-log_pi - self.target_entropy).detach()).mean()
+        alpha_loss = (self.alpha * (-log_pi - self.target_entropy).detach()).mean()
         L.log('train_alpha/loss', alpha_loss, step)
         L.log('train_alpha/value', self.alpha, step)
         alpha_loss.backward()
@@ -400,16 +369,9 @@ class SacAeAgent(object):
             self.update_actor_and_alpha(obs, L, step)
 
         if step % self.critic_target_update_freq == 0:
-            utils.soft_update_params(
-                self.critic.Q1, self.critic_target.Q1, self.critic_tau
-            )
-            utils.soft_update_params(
-                self.critic.Q2, self.critic_target.Q2, self.critic_tau
-            )
-            utils.soft_update_params(
-                self.critic.encoder, self.critic_target.encoder,
-                self.encoder_tau
-            )
+            utils.soft_update_params(self.critic.Q1, self.critic_target.Q1, self.critic_tau)
+            utils.soft_update_params(self.critic.Q2, self.critic_target.Q2, self.critic_tau)
+            utils.soft_update_params(self.critic.encoder, self.critic_target.encoder, self.encoder_tau)
 
         if self.decoder is not None and step % self.decoder_update_freq == 0:
             self.update_decoder(obs, obs, L, step)
@@ -421,13 +383,7 @@ class SacAeAgent(object):
             torch.save(self.decoder.state_dict(), '%s/decoder_%s.pt' % (model_dir, step))
 
     def load(self, model_dir, step):
-        self.actor.load_state_dict(
-            torch.load('%s/actor_%s.pt' % (model_dir, step))
-        )
-        self.critic.load_state_dict(
-            torch.load('%s/critic_%s.pt' % (model_dir, step))
-        )
+        self.actor.load_state_dict(torch.load('%s/actor_%s.pt' % (model_dir, step)))
+        self.critic.load_state_dict(torch.load('%s/critic_%s.pt' % (model_dir, step)))
         if self.decoder is not None:
-            self.decoder.load_state_dict(
-                torch.load('%s/decoder_%s.pt' % (model_dir, step))
-            )
+            self.decoder.load_state_dict(torch.load('%s/decoder_%s.pt' % (model_dir, step)))

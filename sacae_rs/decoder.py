@@ -12,9 +12,7 @@ class PixelDecoder(nn.Module):
         self.num_filters = num_filters
         self.out_dim = OUT_DIM[num_layers]
 
-        self.fc = nn.Linear(
-            feature_dim, num_filters * self.out_dim * self.out_dim
-        )
+        self.fc = nn.Linear(feature_dim, num_filters * self.out_dim * self.out_dim)
 
         self.deconvs = nn.ModuleList()
 
@@ -26,22 +24,12 @@ class PixelDecoder(nn.Module):
             self.num_layers_stride2 = 1
 
         for i in range(self.num_layers - self.num_layers_stride2):
-            self.deconvs.append(
-                nn.ConvTranspose2d(num_filters, num_filters, 3, stride=1)
-            )
+            self.deconvs.append(nn.ConvTranspose2d(num_filters, num_filters, 3, stride=1))
 
         for i in range(self.num_layers_stride2 - 1):
-            self.deconvs.append(
-                nn.ConvTranspose2d(
-                    num_filters, num_filters, 3, stride=2
-                )
-            )
+            self.deconvs.append(nn.ConvTranspose2d(num_filters, num_filters, 3, stride=2))
 
-        self.deconvs.append(
-            nn.ConvTranspose2d(
-                num_filters, obs_shape[0], 3, stride=2, output_padding=1
-            )
-        )
+        self.deconvs.append(nn.ConvTranspose2d(num_filters, obs_shape[0], 3, stride=2, output_padding=1))
 
         self.outputs = dict()
 
@@ -79,11 +67,6 @@ class PixelDecoder(nn.Module):
 
 _AVAILABLE_DECODERS = {'pixel': PixelDecoder}
 
-
-def make_decoder(
-    decoder_type, obs_shape, feature_dim, num_layers, num_filters
-):
+def make_decoder(decoder_type, obs_shape, feature_dim, num_layers, num_filters):
     assert decoder_type in _AVAILABLE_DECODERS
-    return _AVAILABLE_DECODERS[decoder_type](
-        obs_shape, feature_dim, num_layers, num_filters
-    )
+    return _AVAILABLE_DECODERS[decoder_type](obs_shape, feature_dim, num_layers, num_filters)

@@ -11,8 +11,7 @@ from PIL import Image
 
 
 class RobosuiteTask:
-  def __init__(self, name, horizon=1000, size=(84, 84), camview="agentview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True):
-    domain, task = name.split('_', 1)
+  def __init__(self, task, horizon=1000, size=(84, 84), camview="agentview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_tactile_obs=False, use_touch_obs=True):
     self._size = size
     self._camview_rgb = camview+'_image'
     self._camview_depth = camview+'_depth'
@@ -22,34 +21,35 @@ class RobosuiteTask:
     self._use_tactile_obs = use_tactile_obs
     self._use_touch_obs = use_touch_obs
 
-    if isinstance(domain, str):
-      import robosuite as suite
-      from robosuite.wrappers import GymWrapper
-      from robosuite.controllers import load_controller_config
+    import robosuite as suite
+    import robosuite.macros as macros
+    macros.IMAGE_CONVENTION = "opencv"    # Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio (which uses opencv convention)
+    from robosuite.wrappers import GymWrapper
+    from robosuite.controllers import load_controller_config
 
-      # load default controller parameters for Operational Space Control (OSC)
-      controller_config = load_controller_config(default_controller="OSC_POSE")
+    # load default controller parameters for Operational Space Control (OSC)
+    controller_config = load_controller_config(default_controller="OSC_POSE")
 
-      # create a robosuite environment to visualize on-screen
-      self._env = suite.make(
-          env_name=domain, 
-          robots="Panda", 
-          gripper_types="default",
-          controller_configs=controller_config,
-          reward_shaping=True, 
-          has_renderer=False, 
-          has_offscreen_renderer=True, 
-          use_camera_obs=self._use_camera_obs, 
-          use_object_obs=self._use_object_obs,
-          camera_depths=self._use_depth_obs,
-          control_freq=20, 
-          horizon=horizon, 
-          camera_names=camview, 
-          camera_heights=self._size[0], 
-          camera_widths=self._size[1], 
-          use_tactile_obs=self._use_tactile_obs,
-          use_touch_obs=self._use_touch_obs
-      )
+    # create a robosuite environment to visualize on-screen
+    self._env = suite.make(
+        env_name=task, 
+        robots="Panda", 
+        gripper_types="default",
+        controller_configs=controller_config,
+        reward_shaping=True, 
+        has_renderer=False, 
+        has_offscreen_renderer=True, 
+        use_camera_obs=self._use_camera_obs, 
+        use_object_obs=self._use_object_obs,
+        camera_depths=self._use_depth_obs,
+        control_freq=20, 
+        horizon=horizon, 
+        camera_names=camview, 
+        camera_heights=self._size[0], 
+        camera_widths=self._size[1], 
+        use_tactile_obs=self._use_tactile_obs,
+        use_touch_obs=self._use_touch_obs
+    )
 
   @property
   def observation_space(self):

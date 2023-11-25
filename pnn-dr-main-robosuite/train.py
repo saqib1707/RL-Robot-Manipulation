@@ -7,7 +7,7 @@ from torch.autograd import Variable
 # from irb120 import IRB120Env
 from Panda import RobosuiteEnv
 from model import ActorCritic
-from utils import state_to_tensor
+from utils import state_to_tensor, set_seed_everywhere
 
 
 def _transfer_grads_to_shared_model(model, shared_model):
@@ -64,7 +64,7 @@ def _update_networks(args, T, model, shared_model, loss, optimiser, loss_values)
         _adjust_learning_rate(optimiser, max(args.lr * (args.T_max - T.value()) / args.T_max, 1e-32))
 
 
-def _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewards, R, loss_values):
+def _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewards, R, loss_values, device):
     """
     Train the model parameters using ActorCritic network
 
@@ -81,10 +81,11 @@ def _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewar
         R (torch.Tensor): last inmediate reward obtained.
         loss_values (list):list of loss values.
     """
+    # print("Inside _train:", model.device, shared_model.device, policies[0].device, actions[0,0].device)
     policy_loss, value_loss = 0, 0
     
     # Generalised advantage estimator Ψ
-    A_GAE = torch.zeros(1, 1)
+    A_GAE = torch.zeros(1, 1, device=device)
     
     # Calculate n-step returns in forward view, stepping backwards from the last state
     t = len(rewards)
@@ -101,7 +102,7 @@ def _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewar
         
         # dθ ← dθ - ∇θ∙log(π(a_i|s_i; θ))∙Ψ - β∙∇θH(π(s_i; θ))
         for j, p in enumerate(policies[i]):
-            policy_loss -= p.gather(1, actions[i][j].detach().unsqueeze(0).unsqueeze(0)).log() * Variable(A_GAE)
+            policy_loss -= p.gather(1, actions[i][j].detach().unsqueeze(0).unsqueeze(0).to(device)).log() * Variable(A_GAE)
             policy_loss -= args.entropy_weight * -(p.log() * p).sum(1)
     
     # Optionally normalise loss by number of time steps
@@ -113,7 +114,7 @@ def _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewar
     _update_networks(args, T, model, shared_model, policy_loss + value_loss, optimiser, loss_values)   
 
 
-def train(rank, args, T, shared_model, optimiser):
+def train(rank, args, T, shared_model, optimiser, device):
     """
     Act and train the model.
 
@@ -127,25 +128,18 @@ def train(rank, args, T, shared_model, optimiser):
     camview_rgb = args.camviews + '_image'
 
     # instantiate the robosuite environment
-    np.random.seed(args.seed + rank)
-    env = RobosuiteEnv(task=args.task, horizon=args.max_episode_length, size=(args.width, args.height), camviews=args.camviews, reward_shaping=args.reward_continuous)
+    set_seed_everywhere(args.seed + rank)
+    env = RobosuiteEnv(
+        args=args, 
+        task=args.task, 
+        horizon=args.max_episode_length, 
+        size=(args.width, args.height), 
+        camviews=args.camviews, 
+        reward_shaping=args.reward_continuous
+    )
     # env.seed(args.seed + rank)
-    torch.manual_seed(args.seed + rank)
-
-    if args.domain_random == True:
-        # Wrapper that allows for domain randomization mid-simulation.
-        env = DomainRandomizationWrapper(
-            env, 
-            seed=np.random.randint(0,100),
-            randomize_color=False,       # if True, randomize geom colors and texture colors
-            randomize_camera=True,      # if True, randomize camera locations and parameters
-            randomize_lighting=False,    # if True, randomize light locations and properties
-            randomize_dynamics=False,    # if True, randomize dynamics parameters
-            randomize_on_reset=True, 
-            randomize_every_n_steps=0
-        )
     
-    model = ActorCritic(args.hidden_size, rgb_width=args.width, rgb_height=args.height)    # Instantiate the model
+    model = ActorCritic(args.hidden_size, rgb_width=args.width, rgb_height=args.height).to(device)    # Instantiate the model
     model.train()     # setting model to training mode
     
     loss_values = []     # Losses list
@@ -159,34 +153,34 @@ def train(rank, args, T, shared_model, optimiser):
         
         # Reset or pass on hidden state
         if done:
-            hx = Variable(torch.zeros(1, args.hidden_size))    # LSTM hidden state
-            cx = Variable(torch.zeros(1, args.hidden_size))    # LSTM cell state
+            hx = Variable(torch.zeros(1, args.hidden_size, device=device))    # LSTM hidden state
+            cx = Variable(torch.zeros(1, args.hidden_size, device=device))    # LSTM cell state
+            
             # Reset environment and done flag
-            state = state_to_tensor(env.reset()[camview_rgb])
+            state = Variable(state_to_tensor(env.reset()[camview_rgb], device))
             action, reward, done, episode_length = (0, 0, 0, 0, 0, 0, 0), 0, False, 0
         else:
             # Perform truncated backpropagation-through-time (allows freeing buffers after backwards call)
             hx = hx.detach()
             cx = cx.detach()
         
-        # Lists of outputs for training
-        policies, Vs, actions, rewards = [], [], [], []
+        policies, Vs, actions, rewards = [], [], [], []    # Lists of outputs for training
 
         while not done and t - t_start < args.t_max - 1:
             # Calculate policy and value
             # policy, V, (hx, cx) = model(Variable(state[1]), (hx, cx))
             policy, V, (hx, cx) = model(Variable(state), (hx, cx))
-            
+
             # Sample action
             # Graph broken as loss for stochastic action calculated manually
             action = [p.multinomial(num_samples=1).data[0] for p in policy]
             # state, reward, done = env.step(action, episode_length)    # Step into the environment
             # print("Action before step:", action)
-            action = np.array(torch.stack(action).squeeze())
+            action = np.array(torch.stack(action).squeeze().cpu())
             # print("Action after:", action)
 
-            state, reward, done = env.step(action)
-            state = state_to_tensor(state[camview_rgb])
+            state, reward, done = env.step(action)   # step into the env and collect reward
+            state = Variable(state_to_tensor(state[camview_rgb], device))
 
             done = done or episode_length >= args.max_episode_length - 1   # Stop episodes at a max length
             episode_length += 1      # Increase episode counter
@@ -205,7 +199,7 @@ def train(rank, args, T, shared_model, optimiser):
 
         # Break graph for last values calculated (used for targets, not directly as model outputs)
         if done:
-            R = Variable(torch.zeros(1, 1))
+            R = Variable(torch.zeros(1, 1, device=device))
         else:
             # R = V(s_i; θ) for non-terminal s
             # _, R, _ = model(Variable(state[1]), (hx, cx))
@@ -214,4 +208,4 @@ def train(rank, args, T, shared_model, optimiser):
         Vs.append(R)
 
         # Train the network
-        _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewards, R, loss_values)
+        _train(args, T, model, shared_model, optimiser, policies, Vs, actions, rewards, R, loss_values, device)

@@ -2,6 +2,7 @@
 import os
 import plotly
 from plotly.graph_objs import Scatter, Line
+import numpy as np
 import torch
 from torch import multiprocessing as mp
 
@@ -32,7 +33,7 @@ class Counter:
             return self.val.value
 
 
-def state_to_tensor(state):
+def state_to_tensor(state, device):
     """
     Converts a state from the OpenAI Gym (a numpy array) to a batch tensor.
 
@@ -48,7 +49,7 @@ def state_to_tensor(state):
     #     (torch.from_numpy(state[1].copy())).permute(2, 1, 0).float().div_(255).unsqueeze(0),
     # )
 
-    return torch.from_numpy(state.copy()).permute(2, 1, 0).float().div_(255).unsqueeze(0)
+    return torch.from_numpy(state.copy()).permute(2, 1, 0).float().div_(255).unsqueeze(0).to(device)
 
     # print("Before:", state.shape, state.dtype, state.min(), state.max())
     # tmp1 = torch.from_numpy(state.copy())
@@ -122,3 +123,11 @@ def plot_line(xs, ys_population):
         filename=os.path.join("results", "rewards.html"),
         auto_open=False,
     )
+
+
+def set_seed_everywhere(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    # random.seed(seed)

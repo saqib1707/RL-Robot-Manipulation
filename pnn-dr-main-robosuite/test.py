@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 # from irb120 import IRB120Env
 from Panda import RobosuiteEnv
 from model import ActorCritic
-from utils import state_to_tensor, plot_line
+from utils import state_to_tensor, plot_line, set_seed_everywhere
 
 tmz = pytz.timezone('US/Pacific')
 
 
-def test(rank, args, T, shared_model):
+def test(rank, args, T, shared_model, device):
     """
     Validation method that test the model during training.
 
@@ -28,29 +28,22 @@ def test(rank, args, T, shared_model):
     """
     # If fine rendering enabled, increase the image size
     # if args.fine_render:
-    #     args.height = 84
-    #     args.width = 84
+    #     args.height = 640
+    #     args.width = 640
 
     camview_rgb = args.camviews + '_image'
 
     # instantiate the robosuite environment
-    np.random.seed(args.seed + rank)
-    env = RobosuiteEnv(task=args.task, horizon=args.max_episode_length, size=(args.width, args.height), camviews=args.camviews, reward_shaping=args.reward_continuous)
+    set_seed_everywhere(args.seed + rank)
+    env = RobosuiteEnv(
+        args=args, 
+        task=args.task, 
+        horizon=args.max_episode_length, 
+        size=(args.width, args.height), 
+        camviews=args.camviews, 
+        reward_shaping=args.reward_continuous
+    )
     # env.seed(args.seed + rank)
-    torch.manual_seed(args.seed + rank)
-
-    if args.domain_random == True:
-        # Wrapper that allows for domain randomization mid-simulation.
-        env = DomainRandomizationWrapper(
-            env, 
-            seed=np.random.randint(0,100),
-            randomize_color=False,       # if True, randomize geom colors and texture colors
-            randomize_camera=True,      # if True, randomize camera locations and parameters
-            randomize_lighting=False,    # if True, randomize light locations and properties
-            randomize_dynamics=False,    # if True, randomize dynamics parameters
-            randomize_on_reset=True, 
-            randomize_every_n_steps=0
-        )
 
     # If fine rendering enabled, Visualization parameters
     if args.fine_render:
@@ -60,7 +53,7 @@ def test(rank, args, T, shared_model):
         f, ax = plt.subplots()
         im = ax.imshow(obs_rgb)
 
-    model = ActorCritic(args.hidden_size, rgb_width=args.width, rgb_height=args.height)    # Instantiate the model
+    model = ActorCritic(args.hidden_size, rgb_width=args.width, rgb_height=args.height).to(device)    # Instantiate the model
     model.eval()     # setting the model to evaluation mode
 
     can_test = True    # Test flag
@@ -83,16 +76,16 @@ def test(rank, args, T, shared_model):
                     if done:
                         model.load_state_dict(shared_model.state_dict())     # Sync with shared model every episode
                         with torch.no_grad():
-                            hx = torch.zeros(1, args.hidden_size)      # LSTM hidden state
-                            cx = torch.zeros(1, args.hidden_size)      # LSTM cell state
+                            hx = torch.zeros(1, args.hidden_size, device=device)      # LSTM hidden state
+                            cx = torch.zeros(1, args.hidden_size, device=device)      # LSTM cell state
                         
                         # Reset environment and done flag
                         if args.fine_render:
-                            state = state_to_tensor(env.reset()[camview_rgb])
+                            state = state_to_tensor(env.reset()[camview_rgb], device)
                             # state = state_to_tensor((obs, cv2.resize(obs_rgb, (64, 64))))
                         else:
                             # state = state_to_tensor(env.reset())
-                            state = state_to_tensor(env.reset()[camview_img])
+                            state = state_to_tensor(env.reset()[camview_img], device)
                         
                         action, reward, done, episode_length = (0, 0, 0, 0, 0, 0, 0), 0, False, 0
                         episode_reward = 0
@@ -102,7 +95,7 @@ def test(rank, args, T, shared_model):
                         policy, _, (hx, cx) = model(state, (hx.detach(), cx.detach()))    # Break graph for memory efficiency
 
                     # Choose action greedily
-                    action = [p.max(1)[1].data[0] for p in policy]
+                    action = [p.max(1)[1].data[0].cpu() for p in policy]
 
                     # Step
                     if args.fine_render:
@@ -110,7 +103,7 @@ def test(rank, args, T, shared_model):
                         state, reward, done = env.step(action)
                         # obs_rgb = state[1]
                         # state = state_to_tensor((state[0], cv2.resize(obs_rgb, (64, 64))))
-                        state = state_to_tensor(state[camview_rgb])
+                        state = state_to_tensor(state[camview_rgb], device)
 
                     # Save outcomes
                     # reward_step.append(reward)
@@ -148,7 +141,7 @@ def test(rank, args, T, shared_model):
             steps.append(t_start)
 
             plot_line(steps, rewards)    # Plot rewards
-            torch.save(model.state_dict(), os.path.join("results", str(t_start) + "_model.pth"))    # Checkpoint model params
+            torch.save(model.state_dict(), os.path.join(args.logdir, str(t_start) + "_model.pth"))    # Checkpoint model params
             can_test = False    # Finish testing
 
             if args.evaluate:

@@ -1,13 +1,14 @@
 apt-get update
 apt-get install -y vim curl wget unzip tar git tree net-tools htop tmux python3-dev python3-pip python3.8-venv
 apt-get install -y libglfw3 libglew-dev libosmesa6-dev libgl1-mesa-dev libgl1-mesa-glx libegl1-mesa libopengl0 patchelf
+apt-get install -y xvfb
 
 # create virtual env
 mkdir /home/envs
 python3.8 -m venv /home/envs/rlenv
 source /home/envs/rlenv/bin/activate
 cd /home/saqibcephsharedvol2/ERLab/IRL_Project/
-pip3 install -r reqs_rlenv.txt
+pip3 install -r requirements_rlenv.txt
 
 cd dmc2gym/
 pip3 install -e ./

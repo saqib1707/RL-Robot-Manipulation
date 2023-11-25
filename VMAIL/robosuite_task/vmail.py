@@ -18,7 +18,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import numpy as np
 import torch
 import tensorflow as tf
-# from tensorflow.keras.mixed_precision import experimental as prec
 import tensorflow.keras.mixed_precision as prec
 tf.get_logger().setLevel('ERROR')
 from tensorflow_probability import distributions as tfd
@@ -50,9 +49,10 @@ def define_config():
   config.precision = 32
 
   # Environment.
-  config.task = 'robosuite_Lift_pick'
+  config.env = 'robosuite'
+  config.task = 'Lift'
   config.camera_names = 'agentview'
-  config.envs = 1
+  config.num_envs = 1
 
   config.use_camera_obs = True
   config.use_depth_obs = False
@@ -60,6 +60,7 @@ def define_config():
   config.use_proprio_obs = True
   config.use_touch_obs = True
   config.use_tactile_obs = False
+  config.use_shape_obs = True
 
   config.parallel = 'none'
   config.action_repeat = 1
@@ -109,10 +110,10 @@ def define_config():
   config.action_init_std = 5.0
 
   # Exploration parameters
-  config.expl = 'additive_gaussian'
-  config.expl_amount = 0.3
-  config.expl_decay = 0.0
-  config.expl_min = 0.0
+  config.expl = 'additive_gaussian'    # exploration algorithm/type
+  config.expl_amount = 0.3    # exploration amount
+  config.expl_decay = 0.0    # exploration decay
+  config.expl_min = 0.0     # exploration minimum
 
   return config
 
@@ -158,6 +159,7 @@ class VMAIL(tools.Module):
     if self._should_train(step):
       log = self._should_log(step)
       n = self._c.pretrain if self._should_pretrain() else self._c.train_steps
+      
       print(f'Training for {n} steps.')
       with self._strategy.scope():
         for train_step in range(n):
@@ -174,9 +176,9 @@ class VMAIL(tools.Module):
 
 
   @tf.function
-  def policy(self, obs, state, training=True):
+  def policy(self, obs, state, training:bool=True):
     if state is None:
-      latent = self._dynamics.initial(batch_size=len(obs[self._camview_rgb]))
+      latent = self._dynamics_model.initialize(batch_size=len(obs[self._camview_rgb]))
       action = tf.zeros((len(obs[self._camview_rgb]), self._actdim), self._float)
     else:
       latent, action = state
@@ -184,12 +186,10 @@ class VMAIL(tools.Module):
     embed = self._encode(preprocess(obs, self._c))   # [128,50,1024]
     if self._c.use_proprio_obs == True:
       embed_proprio = self._encode_proprio(obs)        # [128,50,32]
-      # print("inside policy (before):", embed.shape, embed_proprio.shape)
       embed = tf.concat([embed, embed_proprio], axis=-1)   # [128,50,1056]
-      # print("inside policy (after):", embed.shape)
     
-    latent, _ = self._dynamics.obs_step(latent, action, embed)  # returns (posterior, prior) dictionaries
-    feat = self._dynamics.get_feat(latent)
+    latent, _ = self._dynamics_model.obs_step(latent, action, embed)  # returns (posterior, prior) dictionaries
+    feat = self._dynamics_model.get_feat(latent)
     
     if training:
       action = self._actor(feat).sample()
@@ -200,6 +200,62 @@ class VMAIL(tools.Module):
     state = (latent, action)
     
     return action, state
+  
+
+  def load_shape_modules(self):
+    sys.path.append("/home/saqibcephsharedvol2/ERLab/IRL_Project/SceneGrasp/")
+    from common.utils.nocs_utils import load_depth
+    from common.utils.misc_utils import (
+        convert_realsense_rgb_depth_to_o3d_pcl,
+        get_o3d_pcd_from_np,
+        get_scene_grasp_model_params,
+    )
+    from common.utils.scene_grasp_utils import (
+        SceneGraspModel,
+        get_final_grasps_from_predictions_np,
+        get_grasp_vis,
+    )
+    print("Importing Scenegrasp")
+  
+
+  def estimate_object_shape(self):
+    """
+      Estimates the 3d point cloud shape of each object in the scene. 
+
+      Returns a list
+    """
+    all_gripper_vis = []
+    for pred_idx in range(pred_dp.get_len()):
+        (
+            pred_grasp_poses_cam_final,
+            pred_grasp_widths,
+            _,
+        ) = get_final_grasps_from_predictions_np(
+            pred_dp.scale_matrices[pred_idx][0, 0],
+            pred_dp.endpoints,
+            pred_idx,
+            pred_dp.pose_matrices[pred_idx],
+            TOP_K=TOP_K,
+        )
+
+        grasp_colors = np.ones((len(pred_grasp_widths), 3)) * [1, 0, 0]
+        all_gripper_vis += [
+            get_grasp_vis(
+                pred_grasp_poses_cam_final, pred_grasp_widths, grasp_colors
+            )
+        ]
+
+    pred_pcls = pred_dp.get_camera_frame_pcls()
+    pred_pcls_o3d = []
+    for pred_pcl in pred_pcls:
+        pred_pcls_o3d.append(get_o3d_pcd_from_np(pred_pcl))    # convert numpy pcd to o3d pcd
+    o3d_pcl = convert_realsense_rgb_depth_to_o3d_pcl(rgb, depth / 1000, camera_k)
+    print(">Showing predicted shapes:")
+    print("stage:0", o3d_pcl)
+    print("stage:1", pred_pcls_o3d)
+    print("stage:2", all_gripper_vis)
+
+    return o3d_pcl, pred_pcls_o3d
 
 
   def load(self, filename):
@@ -209,24 +265,29 @@ class VMAIL(tools.Module):
 
   @tf.function()
   def train(self, model_data, expert_data, log_images=False):
-    # self._strategy.experimental_run_v2(self._train, args=(model_data, expert_data, log_images))
     self._strategy.run(self._train, args=(model_data, expert_data, log_images))
 
 
   def _train(self, model_data, expert_data, log_images):
+    """
+      model_data: environment buffer trajectory samples (observation, action, next observation)
+      expert_data: expert trajectory samples (observation, action)
+    """
+
     with tf.GradientTape() as model_tape:
       # compute embedded features for images sampled from policy
       embed = self._encode(model_data)          # [128, 50, 1024]
-      if self._c.use_proprio_obs == True:
+      if self._c.use_proprio_obs:
         embed_proprio = self._encode_proprio(model_data)   # [128, 50, 32]
-        # print("inside train (before):", embed.shape, embed_proprio.shape)
         embed = tf.concat([embed, embed_proprio], axis=-1)  # [128,50,1056]
-        # print("inside train (after):", embed.shape)
       
-      post, prior = self._dynamics.observe(embed=embed, action=model_data['action'])
-      feat = self._dynamics.get_feat(post)
+      if self._c.use_shape_obs:
+        self.load_shape_modules()
+        # embed_shape = self.estimate_object_shape()
+      
+      post, prior = self._dynamics_model.observe(embed=embed, action=model_data['action'])
+      feat = self._dynamics_model.get_feat(post)
       image_pred = self._decode(feat)     # tfp.distributions.Independent("IndependentNormal", batch_shape=[128, 50], event_shape=[84, 84, 3/4], dtype=float32)
-      # print("Inside train:", image_pred)
       
       likes = tools.AttrDict()
       if self._c.use_depth_obs == True:
@@ -242,8 +303,8 @@ class VMAIL(tools.Module):
         likes.pcont *= self._c.pcont_scale
       
       # estimate prior and posterior transition dynamics distribution
-      prior_dist = self._dynamics.get_distribution(prior)
-      post_dist = self._dynamics.get_distribution(post)
+      prior_dist = self._dynamics_model.get_distribution(prior)
+      post_dist = self._dynamics_model.get_distribution(post)
 
       # compute divergence
       div = tf.reduce_mean(tfd.kl_divergence(post_dist, prior_dist))  # scalar divergence tensor
@@ -259,12 +320,10 @@ class VMAIL(tools.Module):
       embed_expert = self._encode(expert_data)                   # [128,50,1024]
       if self._c.use_proprio_obs == True:
         embed_expert_proprio = self._encode_proprio(expert_data)   # [128,50,32]
-        # print("inside train (before):", embed_expert.shape, embed_expert_proprio.shape)
         embed_expert = tf.concat([embed_expert, embed_expert_proprio], axis=-1)   # [128,50,1056]
-        # print("inside train (after):", embed_expert.shape)
       
-      post_expert, prior_expert = self._dynamics.observe(embed=embed_expert, action=expert_data['action'])
-      feat_expert = self._dynamics.get_feat(post_expert)
+      post_expert, prior_expert = self._dynamics_model.observe(embed=embed_expert, action=expert_data['action'])
+      feat_expert = self._dynamics_model.get_feat(post_expert)
      
       feat_expert_dist = tf.concat([feat_expert[:, :-1], expert_data['action'][:, 1:]], axis = -1)  # [128,49,237]
       feat_policy_dist = tf.concat([imag_feat[:-1], actions], axis = -1)
@@ -333,14 +392,14 @@ class VMAIL(tools.Module):
     if self._c.use_proprio_obs == True:
       self._encode_proprio = models.DenseEncoder(self._c.out_units, num_layers=0, hidden_units=self._c.hidden_units, activation=act, camview_rgb=self._camview_rgb)
 
-    self._dynamics = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
+    self._dynamics_model = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
     self._decode = models.ConvDecoder(self._c.cnn_depth, cnn_act, use_depth_obs=self._c.use_depth_obs)
     self._reward = models.DenseDecoder((), 2, self._c.num_units, act=act)
     self._discriminator = models.DenseDecoder((), 2, self._c.num_units, 'binary', act=act)
     self._value = models.DenseDecoder((), 3, self._c.num_units, act=act)
     self._actor = models.ActionDecoder(self._actdim, 4, self._c.num_units, self._c.action_dist, init_std=self._c.action_init_std, act=act)
     
-    model_modules = [self._encode, self._dynamics, self._decode, self._reward]
+    model_modules = [self._encode, self._dynamics_model, self._decode, self._reward]
     if self._c.use_proprio_obs == True:
       model_modules.append(self._encode_proprio)
 
@@ -355,7 +414,7 @@ class VMAIL(tools.Module):
     self._actor_opt = Optimizer('actor', [self._actor], self._c.actor_lr)
     
   
-  def _exploration(self, action, training):
+  def _exploration(self, action, training:bool=True):
     if training:
       amount = self._c.expl_amount
       if self._c.expl_decay:   # False
@@ -391,7 +450,7 @@ class VMAIL(tools.Module):
     flatten = lambda x: tf.reshape(x, [-1] + list(x.shape[2:]))
     start_state = {k: flatten(v) for k, v in post.items()}   # {mean:[6272,30], std:[6272,30], stoch:[6272,30], deter:[6272,200]}
 
-    policy = lambda state: self._actor(tf.stop_gradient(self._dynamics.get_feat(state))).sample()
+    policy = lambda state: self._actor(tf.stop_gradient(self._dynamics_model.get_feat(state))).sample()
     
     last_state = start_state
     # print("tf.nest.flatten:", tf.nest.flatten(start_state), tf.nest.flatten(last_state))
@@ -403,7 +462,7 @@ class VMAIL(tools.Module):
     
     for index in range(self._c.horizon):  # why horizon=15 ??
       action = policy(last_state)
-      last_state = self._dynamics.img_step(last_state, action)   # given current state `last_state` and `action`, find next state using learned transition dynamics
+      last_state = self._dynamics_model.img_step(last_state, action)   # given current state `last_state` and `action`, find next state using learned transition dynamics
       [o.append(l) for o, l in zip(outputs, tf.nest.flatten(last_state))]
       actions.append(action)
     
@@ -413,7 +472,7 @@ class VMAIL(tools.Module):
     # print("actions:", actions)
     states = tf.nest.pack_sequence_as(start_state, outputs)  # {mean:tensor(16,6272,30), std:tensor(16,6272,30), stoch:tensor(16,6272,30), deter:tensor(16,6272,200)}
     # print("states:", states)
-    imag_feat = self._dynamics.get_feat(states)  # tensor(16, 6272, 30+200=230)
+    imag_feat = self._dynamics_model.get_feat(states)  # tensor(16, 6272, 30+200=230)
     # print("image features:", imag_feat)
     return imag_feat, actions
 
@@ -450,11 +509,11 @@ class VMAIL(tools.Module):
       truth = data[self._camview_rgb][:6] + 0.5       # [6,50,84,84,3]
     
     recon = image_pred.mode()[:6]   # [6,50,84,84,3/4]
-    init, _ = self._dynamics.observe(embed[:6, :5], data['action'][:6, :5])
+    init, _ = self._dynamics_model.observe(embed[:6, :5], data['action'][:6, :5])
     init = {k: v[:, -1] for k, v in init.items()}
     
-    prior = self._dynamics.imagine(data['action'][:6, 5:], init)
-    openl = self._decode(self._dynamics.get_feat(prior)).mode()
+    prior = self._dynamics_model.imagine(data['action'][:6, 5:], init)
+    openl = self._decode(self._dynamics_model.get_feat(prior)).mode()
     model = tf.concat([recon[:, :5] + 0.5, openl + 0.5], 1)
     error = (model - truth + 1) / 2
     openl = tf.concat([truth, model, error], 2)
@@ -493,7 +552,6 @@ def flatten(x):
 
 def preprocess(obs, config):
   dtype = prec.global_policy().compute_dtype  # float32
-  # print("datatype inside preprocess:", dtype)
   obs = obs.copy()
   with tf.device('cpu:0'):
     rgb_img_name = config.camera_names+'_image'
@@ -551,16 +609,15 @@ def summarize_episode(episode, config, datadir, writer, prefix):
 
 
 def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
-  suite, task = config.task.split('_', 1)
-  if suite == 'dmc':
-    env = wrappers.DeepMindControl(task)
+  if config.env == 'dmc':
+    env = wrappers.DeepMindControl(config.task)
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
-  elif suite == 'atari':
-    env = wrappers.Atari(task, config.action_repeat, (64, 64), grayscale=False, life_done=True, sticky_actions=True)
+  elif config.env == 'atari':
+    env = wrappers.Atari(config.task, config.action_repeat, (64, 64), grayscale=False, life_done=True, sticky_actions=True)
     env = wrappers.OneHotAction(env)
-  elif suite == 'robosuite':
-    env = wrappers.RobosuiteTask(task, 
+  elif config.env == 'robosuite':
+    env = wrappers.RobosuiteTask(task=config.task, 
                                 horizon=config.time_limit, 
                                 camview=config.camera_names, 
                                 use_camera_obs=config.use_camera_obs, 
@@ -568,11 +625,11 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
                                 use_object_obs=config.use_object_obs, 
                                 use_touch_obs=config.use_touch_obs, 
                                 use_tactile_obs=config.use_tactile_obs
-                                )
+                              )
     env = wrappers.ActionRepeat(env, config.action_repeat)
     env = wrappers.NormalizeActions(env)
   else:
-    raise NotImplementedError(suite)
+    raise NotImplementedError(config.env)
   
   env = wrappers.TimeLimit(env, config.time_limit / config.action_repeat)
   callbacks = []
@@ -631,9 +688,9 @@ def main(config):
   writer = tf.summary.create_file_writer(str(config.logdir), max_queue=1000, flush_millis=20000)
   writer.set_as_default()
   train_envs = [wrappers.Async(lambda: make_env(
-      config, writer, 'train', model_datadir, policy_datadir, store=config.store), config.parallel) for _ in range(config.envs)]
+      config, writer, 'train', model_datadir, policy_datadir, store=config.store), config.parallel) for _ in range(config.num_envs)]
   test_envs = [wrappers.Async(lambda: make_env(
-      config, writer, 'test', model_datadir, policy_datadir, store=False), config.parallel) for _ in range(config.envs)]
+      config, writer, 'test', model_datadir, policy_datadir, store=False), config.parallel) for _ in range(config.num_envs)]
   actspace = train_envs[0].action_space
 
   # Prefill dataset with random episodes.
