@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sirius-rs-lift3
+  name: sirius-job
 spec:
   template:
     spec:
@@ -14,12 +14,16 @@ spec:
               matchExpressions:
               - key: nvidia.com/gpu.product
                 operator: In
-                values: # Set the GPU type
+                values: # ask for a specific GPU type
                 - NVIDIA-GeForce-GTX-1080-Ti
-      # This part asks for preferred GPU (no guarantee)
+                - NVIDIA-GeForce-RTX-2080-Ti
+                - NVIDIA-TITAN-RTX
+                - NVIDIA-GeForce-RTX-3090
+                - NVIDIA-A100-80GB-PCIe-MIG-1g.10gb
+                - NVIDIA-A10
       containers:
       - name: gpu-container
-        image: nvidia/cudagl:11.3.0-devel-ubuntu20.04 # Choose desired docker image
+        image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
         command: ["sleep", "infinity"]
         resources:
           limits:
@@ -32,11 +36,10 @@ spec:
             cpu: "8"
             # memory: 16Gi
             nvidia.com/gpu: 1
-        # This part mounts our lab's PVC
         volumeMounts:
-        - mountPath: /home/saqibcephsharedvol2
+        - mountPath: /home/saqibcephsharedvol2    # mounts my own PVC
           name: saqibcephsharedvol2
-        - mountPath: /home/erl-ucsd
+        - mountPath: /home/erl-ucsd      # mounts ERLab's PVC
           name: erl-ucsd
         - mountPath: /dev/shm
           name: shm
@@ -51,4 +54,3 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
-      # This part mounts our lab's PVC
