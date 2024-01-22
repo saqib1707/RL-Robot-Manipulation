@@ -13,7 +13,7 @@ spec:
               matchExpressions:
               - key: nvidia.com/gpu.product
                 operator: In
-                values:    # ask for a specific GPU type (no guarantee)
+                values:    # ask for a specific GPU type in order of preference (no guarantee)
                 - NVIDIA-GeForce-GTX-1080-Ti
                 - NVIDIA-GeForce-RTX-2080-Ti
                 - NVIDIA-TITAN-RTX
@@ -68,3 +68,4 @@ spec:
           emptyDir:
             medium: Memory
       restartPolicy: Never
+  backoffLimit: 5

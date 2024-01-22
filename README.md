@@ -2,65 +2,15 @@
 - SAC-AE: [code](https://github.com/denisyarats/pytorch_sac_ae)
 - LAPAL: [code](https://github.com/tianyudwang/LAPAL)
 - VMAIL: [code](https://github.com/rmrafailov/VMAIL)
+- SceneGrasp: [code](https://github.com/SamsungLabs/SceneGrasp)
 - MuJoCo (Multi-Joint Dynamics with Contact): [code](https://github.com/openai/mujoco-py)
 - [Robosuite Domain Randomization](https://robosuite.ai/docs/source/robosuite.wrappers.html)
-- [Nautilus setup guide]()
+- [Nautilus setup guide](https://docs.nationalresearchplatform.org/userdocs/start/policies/)
 
 
 **To add git repository to the project in VS code:**
 ```
 git config --global --add safe.directory /path/to/project/directory
-```
-
-
-## Nautilus Cluster
-
-### Available GPUs
-- NVIDIA A10
-- NVIDIA A100-SXM4-80GB (consumes much more memory space compared to other GPUs)
-- NVIDIA A100-PCIE-40GB
-- Quadro RTX 6000
-- NVIDIA-GeForce-GTX-1080-Ti
-- NVIDIA-GeForce-RTX-2080-Ti
-- NVIDIA-GeForce-RTX-3090
-- NVIDIA A100 80GB PCIe MIG 1g.10gb
-- NVIDIA TITAN-RTX
-
-### Kubernetes commands
-Below are some commonly used Kubernetes commands along with brief descriptions:
-##### 1. Get Information about Pods
-```
-kubectl get pods
-```
-
-##### 2. Fetch information about the cluster nodes, specifically looking for nodes with NVIDIA GPUs and their corresponding GPU models.
-```
-kubectl get nodes -L nvidia.com/gpu.product
-```
-
-##### 3. Create a new Kubernetes job based on the configuration provided. Jobs are used for running batch processes or scheduled tasks.
-```
-kubectl create -f create_job_config.yaml
-```
-
-##### 4. Execute a command interactively within a specific pod
-```
-kubectl exec -it <pod name> -- /bin/bash
-```
-
-##### 5. Delete a specific pod
-```
-kubectl delete pod <pod name>
-```
-
-##### 5. Deletes a specific job which terminates its associated pods and frees up any allocated resources
-```
-kubectl delete job <job name>
-```
-
-##### 6. Retrieve information about Persistent Volume Claims (PVCs) in the current namespace. Displays details such as PVC names, statuses, and storage capacity. PVCs are used to request persistent storage in a Kubernetes cluster.
-```
-kubectl get pvc
 ```
 
 
