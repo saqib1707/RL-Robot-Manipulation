@@ -2,8 +2,7 @@
 thumbs.db
 .idea
 
-# repo related files and directories
-# nautilus_kubernetes/
+# project specific files and directories
 logdir/
 mopa-rl/
 robosuite/
@@ -14,7 +13,7 @@ LAPAL/
 robomimic/
 .mujoco/
 runs/
-
+papers/
 VMAIL/car_racing/
 VMAIL/expert_data/car_expert/
 VMAIL/expert_data/claw_p3_v0_expert/

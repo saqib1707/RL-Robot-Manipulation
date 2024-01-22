@@ -1,11 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sirius-job4
+  name: sirius-job1
 spec:
   template:
     spec:
-      # This part asks for preferred GPU (no guarantee)
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -14,38 +13,50 @@ spec:
               matchExpressions:
               - key: nvidia.com/gpu.product
                 operator: In
-                values: # ask for a specific GPU type
+                values:    # ask for a specific GPU type (no guarantee)
                 - NVIDIA-GeForce-GTX-1080-Ti
                 - NVIDIA-GeForce-RTX-2080-Ti
                 - NVIDIA-TITAN-RTX
                 - NVIDIA-GeForce-RTX-3090
                 - NVIDIA-A100-80GB-PCIe-MIG-1g.10gb
                 - NVIDIA-A10
-      # This part asks for preferred GPU (no guarantee)
       containers:
       - name: gpu-container
-        image: nvidia/cudagl:11.3.0-devel-ubuntu20.04 # Choose desired docker image
-        command: ["sleep", "infinity"]
+        image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
+        command:            # NEVER EVER USE "sleep infinity" command FOR JOBS
+        - "python"     
+        args:
+        - "/opt/repo/REPONAME/my_script.py"
+        - "arg_job_to_run"
         resources:
           limits:
             nvidia.com/gpu: 1
-            memory: 400Gi
+            memory: 100Gi
             cpu: "16"
-            # memory: 32Gi
           requests:
             nvidia.com/gpu: 1
-            memory: 200Gi
+            memory: 50Gi    # use half of memory in limits
             cpu: "8"
-            # memory: 16Gi
-        # This part mounts our lab's PVC
         volumeMounts:
-        - mountPath: /home/saqibcephsharedvol2
-          name: saqibcephsharedvol2
-        - mountPath: /home/erl-ucsd
-          name: erl-ucsd
-        - mountPath: /dev/shm
-          name: shm
-      restartPolicy: Never
+        - name: git-repo
+          mountPath: /opt/repo
+        - name: saqibcephsharedvol2
+          mountPath: /home/saqibcephsharedvol2
+        - name: erl-ucsd
+          mountPath: /home/erl-ucsd
+        - name: shm
+          mountPath: /dev/shm 
+      initContainers:
+      - name: init-clone-repo
+        image: alpine/git
+        args:
+          - clone
+          - --single-branch
+          # - https://gitlab.nrp-nautilus.io/USERNAME/REPONAME
+          - /opt/repo/REPONAME
+        volumeMounts:
+          - name: git-repo
+            mountPath: /opt/repo
       volumes:
         - name: saqibcephsharedvol2
           persistentVolumeClaim:
@@ -56,4 +67,4 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
-      # This part mounts our lab's PVC
+      restartPolicy: Never

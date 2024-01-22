@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sirius-pod1
+spec:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: nvidia.com/gpu.product
+            operator: In
+            values:    # ask for a specific GPU type (no guarantee)
+            - NVIDIA-GeForce-GTX-1080-Ti
+            - NVIDIA-GeForce-RTX-2080-Ti
+            - NVIDIA-TITAN-RTX
+            - NVIDIA-GeForce-RTX-3090
+            - NVIDIA-A100-80GB-PCIe-MIG-1g.10gb
+            - NVIDIA-A10
+  containers:
+  - name: gpu-container
+    # image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
+    image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
+    command: ["sleep", "infinity"]    # NEVER EVER USE "sleep infinity" command FOR JOBS
+    resources:
+      limits:
+        nvidia.com/gpu: 1    # requests 1 GPU device (max limit = 2 for pods, 8 for jobs per node)
+        memory: "32Gi"
+        cpu: "8"
+      requests:
+        nvidia.com/gpu: 1
+        memory: "16Gi"    # use half of memory in limits
+        cpu: "4"
+    volumeMounts:
+    - name: saqibcephsharedvol2
+      mountPath: /home/saqibcephsharedvol2
+    - name: erl-ucsd
+      mountPath: /home/erl-ucsd
+    - name: shm
+      mountPath: /dev/shm
+  volumes:
+    - name: saqibcephsharedvol2
+      persistentVolumeClaim:
+        claimName: saqibcephsharedvol2
+    - name: erl-ucsd
+      persistentVolumeClaim:
+        claimName: erl-ucsd
+    - name: shm
+      emptyDir:
+        medium: Memory
+  restartPolicy: Never

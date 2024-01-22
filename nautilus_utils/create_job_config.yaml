@@ -1,11 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sirius-job
+  name: sirius-job1
 spec:
   template:
     spec:
-      # This part asks for preferred GPU (no guarantee)
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -14,7 +13,7 @@ spec:
               matchExpressions:
               - key: nvidia.com/gpu.product
                 operator: In
-                values: # ask for a specific GPU type
+                values:    # ask for a specific GPU type (no guarantee)
                 - NVIDIA-GeForce-GTX-1080-Ti
                 - NVIDIA-GeForce-RTX-2080-Ti
                 - NVIDIA-TITAN-RTX
@@ -24,26 +23,23 @@ spec:
       containers:
       - name: gpu-container
         image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
-        command: ["sleep", "infinity"]
+        command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]     # NEVER EVER USE "sleep infinity" command FOR JOBS
         resources:
           limits:
             nvidia.com/gpu: 1
-            memory: 300Gi
+            memory: 100Gi
             cpu: "16"
-            # memory: 32Gi
           requests:
-            memory: 200Gi
-            cpu: "8"
-            # memory: 16Gi
             nvidia.com/gpu: 1
+            memory: 50Gi    # use half of memory in limits
+            cpu: "8"
         volumeMounts:
-        - mountPath: /home/saqibcephsharedvol2    # mounts my own PVC
-          name: saqibcephsharedvol2
-        - mountPath: /home/erl-ucsd      # mounts ERLab's PVC
-          name: erl-ucsd
-        - mountPath: /dev/shm
-          name: shm
-      restartPolicy: Never
+        - name: saqibcephsharedvol2
+          mountPath: /home/saqibcephsharedvol2
+        - name: erl-ucsd
+          mountPath: /home/erl-ucsd 
+        - name: shm
+          mountPath: /dev/shm
       volumes:
         - name: saqibcephsharedvol2
           persistentVolumeClaim:
@@ -54,3 +50,4 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
+      restartPolicy: Never
