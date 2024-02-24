@@ -71,17 +71,17 @@ command:
 
 - If you are training ML models using Python, Tensorflow, PyTorch, etc. it is common to plot real time statistics to Tensorboard. 
 
-- You should first activate the tensorboard in the pods
+- You should first activate the tensorboard in the remote pod
 ```
-tensorboard --logdir=${LOG-FILE}
-```
-
-- kubectl can link your local port to the specified port of the pods
-```
-kubectl port-forward ${POD_NAME} ${REMOTE-PORTNUM}:${LOCAL-PORTNUM}
+tensorboard --logdir=${LOG-FILE} --port=6006
 ```
 
-- Tensorboard website can be seen at [http://localhost:LOCAL-PORTNUM]()
+- Kubectl can link your local port to the specified port on the remote pod in which tensorboard is running
+```
+kubectl port-forward ${POD_NAME} ${LOCAL-PORTNUM}:${REMOTE-PORTNUM}
+```
+
+- Tensorboard visualizations can be seen at [http://localhost:${LOCAL-PORTNUM}]()
 
 
 ## Available GPUs and choosing GPU type

@@ -22,8 +22,9 @@ python3 vmail.py \
 --horizon=15 \
 --task='PickPlaceBread' \
 --use_camera_obs=True \
---use_proprio_obs=True \
---use_depth_obs=True \
+--use_proprio_obs=False \
+--use_depth_obs=False \
+--use_shape_obs=False \
 --store=True
 
 

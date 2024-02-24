@@ -30,7 +30,13 @@ cd ../
 
 deactivate
 cp /home/saqibcephsharedvol2/ERLab/IRL_Project/nautilus_utils/.bashrc /root/.bashrc
-# source ~/.bashrc # (this does not work)
+cp /home/saqibcephsharedvol2/ERLab/IRL_Project/nautilus_utils/.bash_prompt /root/.bash_prompt
+cp /home/saqibcephsharedvol2/ERLab/IRL_Project/nautilus_utils/.bash_aliases /root/.bash_aliases
 
 # make this last step as it requires manual input
+ln -fs /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
+dpkg-reconfigure -f noninteractive tzdata
+timedatectl set-timezone America/Los_Angeles
 apt-get install -y ffmpeg
+
+source /root/.bashrc # (this does not work)

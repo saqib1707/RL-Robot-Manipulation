@@ -1,6 +1,7 @@
 .DS_Store
 thumbs.db
 .idea
+.vscode
 
 # project specific files and directories
 logdir/
@@ -9,6 +10,7 @@ robosuite/
 dm_control
 dmc2gym/
 gym/
+gymbase/
 LAPAL/
 robomimic/
 .mujoco/
@@ -35,6 +37,7 @@ maple/
 ompl/
 pnn-dr-main/
 pnn-dr-main-robosuite/results/
+SceneGrasp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

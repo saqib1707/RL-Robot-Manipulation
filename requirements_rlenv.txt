@@ -94,6 +94,7 @@ colorlog
 plotly==2.7.0
 
 # For SceneGrasp
+fvcore
 open3d
 pygifsicle
 pyrender    # use --no-deps option

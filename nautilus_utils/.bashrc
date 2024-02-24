@@ -77,12 +77,12 @@ if [ -x /usr/bin/dircolors ]; then
     alias egrep='egrep --color=auto'
 fi
 
-# some more ls aliases
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-alias c='clear'
-alias activate='source /home/envs/rlenv/bin/activate'
+# user-defined aliases
+# alias ll='ls -alF'
+# alias la='ls -A'
+# alias l='ls -CF'
+# alias c='clear'
+# alias activate='source /home/envs/rlenv/bin/activate'
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -98,16 +98,16 @@ if [ -f ~/.bash_prompt ]; then
 fi
 
 # sets up the bash prompt
-parse_git_branch() {
-    git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
-}
-PS1="\[\033[32m\]\u";
-PS1+="@";
-PS1+="\[\033[32m\]\h";
-PS1+=" : ";
-PS1+="\[\033[33;1m\]\w";
-PS1+="\[\033[32m\]\$(parse_git_branch)";
-PS1+="\n\[\033[m\]$ ";
+# parse_git_branch() {
+#     git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+# }
+# PS1="\[\033[32m\]\u";
+# PS1+="@";
+# PS1+="\[\033[32m\]\h";
+# PS1+=" : ";
+# PS1+="\[\033[33;1m\]\w";
+# PS1+="\[\033[32m\]\$(parse_git_branch)";
+# PS1+="\n\[\033[m\]$ ";
 # export PS1;
 
 # enable programmable completion features (you don't need to enable
