@@ -106,7 +106,7 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
     # Initialize or unpack simulation state.
     if state is None:
         step, episode = 0, 0
-        done = np.ones(len(envs), np.bool)
+        done = np.ones(len(envs), bool)
         length = np.zeros(len(envs), np.int32)
         obs = [None] * len(envs)
         agent_state = None
@@ -404,7 +404,7 @@ class Adam(tf.Module):
         self._clip = clip
         self._wd = wd
         self._wdpattern = wdpattern
-        self._opt = tf.optimizers.Adam(lr)
+        self._opt = tf.keras.optimizers.legacy.Adam(lr)
         # self._opt = prec.LossScaleOptimizer(self._opt, 'dynamic')
         self._opt = prec.LossScaleOptimizer(self._opt, True)
         self._variables = None

@@ -9,12 +9,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
+import robosuite as suite
+from robosuite.wrappers import GymWrapper
+from robosuite.controllers import load_controller_config
+import robosuite.macros as macros
+
+# Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio (which uses opencv convention)
+macros.IMAGE_CONVENTION = "opencv"
+
 
 class RobosuiteTask:
-    def __init__(self, task, horizon=1000, size=(84, 84), camview="agentview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_touch_obs=True, use_tactile_obs=False, use_shape_obs=False):
+    def __init__(self, task, horizon=1000, size=(84, 84), camera_name="agentview", use_camera_obs=True, use_depth_obs=False, use_object_obs=True, use_touch_obs=True, use_tactile_obs=False, use_shape_obs=False):
         self._size = size
-        self._camview_rgb = camview+'_image'
-        self._camview_depth = camview+'_depth'
+        self._camera_name = camera_name
+        self._rgb_camera_name = camera_name+'_image'
+        self._deth_camera_name = camera_name+'_depth'
         self._use_camera_obs = use_camera_obs
         self._use_object_obs = use_object_obs
         self._use_depth_obs = use_depth_obs
@@ -22,14 +31,6 @@ class RobosuiteTask:
         self._use_touch_obs = use_touch_obs
         self._use_shape_obs = use_shape_obs
 
-        import robosuite as suite
-        from robosuite.wrappers import GymWrapper
-        from robosuite.controllers import load_controller_config
-        import robosuite.macros as macros
-
-        # Set the image convention to opencv so that the images are automatically rendered "right side up" when using imageio (which uses opencv convention)
-        macros.IMAGE_CONVENTION = "opencv"
-        
         # load default controller parameters for Operational Space Control (OSC)
         controller_config = load_controller_config(default_controller="OSC_POSE")
 
@@ -47,7 +48,7 @@ class RobosuiteTask:
                 camera_depths=self._use_depth_obs,
                 control_freq=20, 
                 horizon=horizon, 
-                camera_names=camview, 
+                camera_names=self._camera_name, 
                 camera_heights=self._size[0], 
                 camera_widths=self._size[1], 
                 use_tactile_obs=self._use_tactile_obs,
@@ -61,7 +62,7 @@ class RobosuiteTask:
         for key, value in self._env.observation_spec().items():
             spaces[key] = gym.spaces.Box(-np.inf, np.inf, value.shape, dtype=np.float32)
         
-        spaces[self._camview_rgb] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
+        spaces[self._rgb_camera_name] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
         # spaces['image'] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
         return gym.spaces.Dict(spaces)
 
@@ -81,6 +82,47 @@ class RobosuiteTask:
         # plt.imsave('images/test.png', obs[self._camera+'_image'])
         # obs['image'] = np.copy(obs[self._camera+'_image'])
         return obs
+    
+    @property
+    def get_camera_intrinsic_mat(self):
+        # return suite.utils.camera_utils.get_camera_intrinsic_matrix(self._env.sim, self._camera_name, self._size[0], self._size[1])
+        camera = self._env.sim.model.camera_name2id(self._camera_name)
+
+        # Get camera properties
+        camera_focal_length_x = self._env.sim.model.cam_fovy[camera]
+        # print("YO:", camera_focal_length_x)
+        # camera_focal_length_y = self._env.sim.model.cam_fovx[camera]
+        # camera_width = self._env.sim.model.camera_width[camera]
+        # camera_height = self._env.sim.model.camera_height[camera]
+
+        # Calculate principal point (assuming camera is centered)
+        principal_point_x = self._size[0] / 2
+        principal_point_y = self._size[1] / 2
+
+        # Construct the intrinsic matrix
+        self._intrinsic_matrix = np.array([
+            [camera_focal_length_x, 0, principal_point_x],
+            [0, camera_focal_length_x, principal_point_y],
+            [0, 0, 1]
+        ])
+
+        return self._intrinsic_matrix
+    
+    @property
+    def get_camera_extrinsic_mat(self):
+        # self._camera_k = suite.utils.camera_utils.get_camera_extrinsic_matrix(sim, camera_name=self._camview)
+        camera = self._env.sim.model.camera_name2id(self._camera_name)
+
+        # Get the camera pose (position and orientation) in the world frame
+        camera_pos = self._env.sim.data.get_camera_xpos(camera)
+        camera_quat = self._env.sim.data.get_camera_xmat(camera).reshape(3, 3)  # Rotation matrix
+
+        # Construct the extrinsic matrix (rotation and translation combined)
+        self._extrinsic_matrix = np.eye(4)
+        self._extrinsic_matrix[:3, :3] = camera_quat
+        self._extrinsic_matrix[:3, 3] = camera_pos
+
+        return self._extrinsic_matrix
 
 
 class DeepMindControl:

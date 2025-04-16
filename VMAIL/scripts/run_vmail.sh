@@ -1,4 +1,10 @@
-cd /home/saqibcephsharedvol2/ERLab/IRL_Project/VMAIL/robosuite_task/
+#!/bin/bash
+
+if [[ "$(uname)" == "Linux" ]]; then
+    cd "/home/saqibcephsharedvol2/ERLab/robot_manipulation/VMAIL/robosuite_task/"
+elif [[ "$(uname)" == "Darwin" ]]; then
+    cd "$HOME/Desktop/ERLab/robot_manipulation/VMAIL/robosuite_task/"
+fi
 
 # python3 vmail.py \
 # --expert_datadir="../expert_data/robosuite_expert/Lift/Panda/OSC_POSE/20230820T115652-robot0_eye_in_hand-250/expert_data/" \
@@ -23,8 +29,8 @@ python3 vmail.py \
 --task='PickPlaceBread' \
 --use_camera_obs=True \
 --use_proprio_obs=False \
---use_depth_obs=False \
---use_shape_obs=False \
+--use_depth_obs=True \
+--use_shape_obs=True \
 --store=True
 
 

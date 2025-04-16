@@ -16,9 +16,11 @@ import copy
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # os.environ['MUJOCO_GL'] = 'egl'
 
+import cv2
 import numpy as np
 import torch
 import tensorflow as tf
+# tf.compat.v1.disable_eager_execution()
 import tensorflow.keras.mixed_precision as prec
 tf.get_logger().setLevel('ERROR')
 from tensorflow_probability import distributions as tfd
@@ -27,10 +29,23 @@ import models
 import tools
 import wrappers
 
-USPacific_dt = datetime.now(pytz.timezone('US/Pacific'))
+sys.path.append("/Users/saqib/Desktop/ERLab/robot_manipulation/SceneGrasp/") 
+from common.utils.nocs_utils import load_depth
+from common.utils.misc_utils import (
+        convert_realsense_rgb_depth_to_o3d_pcl,
+        get_o3d_pcd_from_np,
+        get_scene_grasp_model_params,
+)
+from common.utils.scene_grasp_utils import (
+        SceneGraspModel,
+        get_final_grasps_from_predictions_np,
+        get_grasp_vis,
+)
 
 
 def define_config():
+    USPacific_dt = datetime.now(pytz.timezone('US/Pacific'))
+
     config = tools.AttrDict()
 
     # General.
@@ -121,15 +136,23 @@ def define_config():
 
 
 class VMAIL(tools.Module):
-    def __init__(self, config, model_datadir, policy_datadir, expert_datadir, actspace, writer):
+    def __init__(self, config, model_datadir, policy_datadir, expert_datadir, actspace, writer, camera_intrinsic_mat):
         self._c = config
-        self._camview_rgb = self._c.camera_names + "_image"
-        self._camview_depth = self._c.camera_names + "_depth"
+        self._rgb_camera_name = self._c.camera_names + "_image"
+        self._depth_camera_name = self._c.camera_names + "_depth"
         self._actspace = actspace
         self._actdim = actspace.n if hasattr(actspace, 'n') else actspace.shape[0]    # 7
         self._writer = writer
         self._random = np.random.RandomState(config.seed)
-        
+        # self._camera_k = suite.utils.camera_utils.get_camera_extrinsic_matrix(sim, camera_name=self._c.camera_names)
+        self._camera_intrinsic_mat = np.eye(4)
+        self._camera_intrinsic_mat[:3, :3] = camera_intrinsic_mat
+        # self._extrinsic_matrix = get_camera_extrinsic_mat
+
+        # save the camera intrinsic matrix in a np file
+        savedir = os.path.dirname(os.path.dirname(self._c.expert_datadir))
+        np.savez(os.path.join(savedir, "camera_intrinsic_mat.npz"), self._camera_intrinsic_mat)
+
         with tf.device('cpu:0'):
             self._step = tf.Variable(count_steps(policy_datadir, config), dtype=tf.int64)
         
@@ -145,8 +168,43 @@ class VMAIL(tools.Module):
         
         with self._strategy.scope():
             # create tensorflow python distributed iterator objects
-            self._model_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(model_datadir, self._c)))    # tensorflow.python.distribute.input_lib.DistributedIterator object
-            self._expert_dataset = iter(self._strategy.experimental_distribute_dataset(load_dataset(expert_datadir, self._c)))    # tensorflow.python.distribute.input_lib.DistributedIterator object
+            model_data, model_dataint = load_dataset(model_datadir, self._c)
+            expert_data, expert_dataint = load_dataset(expert_datadir, self._c)
+            
+            model_dist_data = self._strategy.experimental_distribute_dataset(model_data)
+            expert_dist_data = self._strategy.experimental_distribute_dataset(expert_data)
+
+            model_dist_dataint = self._strategy.experimental_distribute_dataset(model_dataint)
+            expert_dist_dataint = self._strategy.experimental_distribute_dataset(expert_dataint)
+
+            self._model_dataset = iter(model_dist_data)    # tensorflow.python.distribute.input_lib.DistributedIterator object
+            self._expert_dataset = iter(expert_dist_data)    # tensorflow.python.distribute.input_lib.DistributedIterator object
+
+            self._model_datasetint = iter(model_dist_dataint)    # tensorflow.python.distribute.input_lib.DistributedIterator object
+            self._expert_datasetint = iter(expert_dist_dataint)    # tensorflow.python.distribute.input_lib.DistributedIterator object
+
+            for _, data_batch in enumerate(self._model_datasetint):
+                # pdb.set_trace()
+                rgb_img_batch = data_batch["agentview_image"]
+                depth_img_batch = data_batch["agentview_depth"]
+                self.estimate_object_shape(rgb_img_batch, depth_img_batch)
+                break
+
+            print("TRYING SOMETHING !!")
+            # Create a TensorFlow session
+            # with tf.compat.v1.Session() as sess:
+            #     # Initialize the iterator
+            #     # sess.run(self._model_dataset.initializer)
+            #     # Iterate over the dataset
+            #     while True:
+            #         try:
+            #             # Get the next batch of data from the iterator
+            #             data_batch = sess.run(next(self._model_dataset))
+            #             # Process the data batch as needed
+            #             print("Data batch:", data_batch)
+            #         except tf.errors.OutOfRangeError:
+            #             break
+
             self._build_model()
 
 
@@ -164,9 +222,12 @@ class VMAIL(tools.Module):
             
             print(f'Training for {n} steps.')
             with self._strategy.scope():
-                for train_step in range(n):
-                    log_images = self._c.log_images and log and train_step == 0
-                    self.train(next(self._model_dataset), next(self._expert_dataset), log_images)
+                for train_step in tqdm(range(n)):
+                    log_images = self._c.log_images and log and (train_step == 0)
+                    next_model_dataset = next(self._model_dataset)
+                    next_model_dataset = next(self._expert_dataset)
+                    # pdb.set_trace()
+                    self.train(next_model_dataset, next_model_dataset, log_images)
             if log:
                 self._write_summaries()
         
@@ -180,8 +241,8 @@ class VMAIL(tools.Module):
     @tf.function
     def policy(self, obs, state, training:bool=True):
         if state is None:
-            latent = self._dynamics_model.initialize(batch_size=len(obs[self._camview_rgb]))
-            action = tf.zeros((len(obs[self._camview_rgb]), self._actdim), self._float)
+            latent = self._dynamics_model.initialize(batch_size=len(obs[self._rgb_camera_name]))
+            action = tf.zeros((len(obs[self._rgb_camera_name]), self._actdim), self._float)
         else:
             latent, action = state
         
@@ -204,61 +265,84 @@ class VMAIL(tools.Module):
         return action, state
     
 
-    # def load_shape_modules(self):
-    #     sys.path.append("/home/saqibcephsharedvol2/ERLab/IRL_Project/SceneGrasp/")
-        
-    #     from common.utils.nocs_utils import load_depth
-    #     from common.utils.misc_utils import (
-    #             convert_realsense_rgb_depth_to_o3d_pcl,
-    #             get_o3d_pcd_from_np,
-    #             get_scene_grasp_model_params,
-    #     )
-    #     from common.utils.scene_grasp_utils import (
-    #             SceneGraspModel,
-    #             get_final_grasps_from_predictions_np,
-    #             get_grasp_vis,
-    #     )
-    #     print("Importing Scenegrasp")
+    # def get_demo_data_generator(self, demo_data_path):
+    #     camera_k = np.loadtxt(demo_data_path / "camera_k.txt")
+    #     for color_img_path in demo_data_path.rglob("*_color.png"):
+    #         depth_img_path = color_img_path.parent / (color_img_path.stem.split("_")[0] + "_depth.png")
+    #         color_img = cv2.imread(str(color_img_path))  # type:ignore
+    #         depth_img = load_depth(str(depth_img_path))
+    #         yield color_img, depth_img, camera_k
     
 
-    # def estimate_object_shape(self):
-    #     """
-    #         Estimates the 3d point cloud shape of each object in the scene. 
+    def estimate_object_shape(self, rgb_img_batch, depth_img_batch, img_width=96, img_height=96):
+        """
+        Estimates the 3d point cloud shape of each object in the scene. 
+        Returns a list of shape [N, ]
+        """
 
-    #         Returns a list of shape [N, ]
-    #     """
-    #     all_gripper_vis = []
-    #     for pred_idx in range(pred_dp.get_len()):
-    #             (
-    #                     pred_grasp_poses_cam_final,
-    #                     pred_grasp_widths,
-    #                     _,
-    #             ) = get_final_grasps_from_predictions_np(
-    #                     pred_dp.scale_matrices[pred_idx][0, 0],
-    #                     pred_dp.endpoints,
-    #                     pred_idx,
-    #                     pred_dp.pose_matrices[pred_idx],
-    #                     TOP_K=TOP_K,
-    #             )
+        hparams = get_scene_grasp_model_params()
+        print("Loading model from saved checkpoint: ", hparams.checkpoint)
+        scene_grasp_model = SceneGraspModel(hparams)
 
-    #             grasp_colors = np.ones((len(pred_grasp_widths), 3)) * [1, 0, 0]
-    #             all_gripper_vis += [
-    #                     get_grasp_vis(
-    #                             pred_grasp_poses_cam_final, pred_grasp_widths, grasp_colors
-    #                     )
-    #             ]
+        # demo_data_path = pathlib.Path("../../SceneGrasp/outreach/demo_data")
+        # data_generator = self.get_demo_data_generator(demo_data_path)
 
-    #     pred_pcls = pred_dp.get_camera_frame_pcls()
-    #     pred_pcls_o3d = []
-    #     for pred_pcl in pred_pcls:
-    #             pred_pcls_o3d.append(get_o3d_pcd_from_np(pred_pcl))        # convert numpy pcd to o3d pcd
-    #     o3d_pcl = convert_realsense_rgb_depth_to_o3d_pcl(rgb, depth / 1000, camera_k)
-    #     print(">Showing predicted shapes:")
-    #     # print("stage:0", o3d_pcl)
-    #     # print("stage:1", pred_pcls_o3d)
-    #     # print("stage:2", all_gripper_vis)
+        # rgb_imgs_batch = model_data['agentview_image']
+        # depth_imgs_batch = model_data['agentview_depth']
 
-    #     return o3d_pcl, pred_pcls_o3d
+        # with tf.compat.v1.Session() as sess:
+        #     # Evaluate the tensor within the session
+        #     rgb_imgs_batch = sess.run(rgb_imgs_batch)
+        #     depth_imgs_batch = sess.run(depth_imgs_batch)
+
+        for i in range(self._c.batch_size):
+            for j in range(self._c.batch_length):
+                # Convert TensorFlow tensor to NumPy array and Convert RGB to BGR (OpenCV uses BGR format)
+                rgb = cv2.cvtColor(rgb_img_batch[i, j].numpy(), cv2.COLOR_RGB2BGR)
+                rgb = cv2.resize(rgb, (img_width, img_height))
+
+                depth = np.squeeze(depth_img_batch[i, j].numpy())
+                depth = cv2.resize(depth, (img_width, img_height))
+                # print("THIS IS TOO MUCH")
+                # pdb.set_trace()
+
+                print("------- Showing results ------------")
+                pred_dp = scene_grasp_model.get_predictions(rgb, depth, self._camera_intrinsic_mat)
+                if pred_dp is None:
+                    print("No objects found.")
+                    continue
+            
+                TOP_K = 200  # TODO: use greedy-nms for top-k to get better distributions!
+                all_gripper_vis = []
+                for pred_idx in range(pred_dp.get_len()):
+                    (pred_grasp_poses_cam_final, pred_grasp_widths, _,) = get_final_grasps_from_predictions_np(
+                        pred_dp.scale_matrices[pred_idx][0, 0],
+                        pred_dp.endpoints,
+                        pred_idx,
+                        pred_dp.pose_matrices[pred_idx],
+                        TOP_K=TOP_K,
+                    )
+                    # print(pred_grasp_poses_cam_final.shape)    # (N=124/200/164, 4, 4)
+                    # print(pred_grasp_widths.shape)    # (N,)
+
+                    grasp_colors = np.ones((len(pred_grasp_widths), 3)) * [1, 0, 0]    # (N, 3)
+                    all_gripper_vis += [get_grasp_vis(pred_grasp_poses_cam_final, pred_grasp_widths, grasp_colors)]
+
+                pred_pcls = pred_dp.get_camera_frame_pcls()    # list containing the pcd of each object in the image. Each element is np array of shape (2048, 3)
+                pred_pcls_o3d = []
+                for pred_pcl in pred_pcls:
+                    pred_pcls_o3d.append(get_o3d_pcd_from_np(pred_pcl))    # convert numpy pcd to open3d pcd
+                o3d_pcl = convert_realsense_rgb_depth_to_o3d_pcl(rgb, depth / 1000, self._camera_intrinsic_mat)    # Pointcloud with T (variable) points
+
+            # print(">Showing predicted shapes:")
+            # print("stage:0", o3d_pcl)
+            # print("stage:1", pred_pcls_o3d)
+            # print("stage:2", all_gripper_vis)
+
+        print("Wanna REACH HERE")
+        pdb.set_trace()
+        
+        return o3d_pcl, pred_pcls_o3d
 
 
     def load(self, filename):
@@ -286,8 +370,9 @@ class VMAIL(tools.Module):
                 embed = tf.concat([embed, embed_proprio], axis=-1)    # [128,50,1056]
             
             if self._c.use_shape_obs:
-                self.load_shape_modules()
-                # embed_shape = self.estimate_object_shape()
+                # pdb.set_trace()
+                # o3d_pcl, pred_pcls_o3d = self.estimate_object_shape(model_data)
+                print("OH THIS WORKS !!!")
             
             post, prior = self._dynamics_model.observe(embed=embed, action=model_data['action'])
             feat = self._dynamics_model.get_feat(post)
@@ -295,9 +380,9 @@ class VMAIL(tools.Module):
             
             likes = tools.AttrDict()    # just a simple python dict with obj.key instead of obj['key']
             if self._c.use_depth_obs == True:
-                decoder_gt = tf.concat([model_data[self._camview_rgb], model_data[self._camview_depth]], axis=-1)
+                decoder_gt = tf.concat([model_data[self._rgb_camera_name], model_data[self._depth_camera_name]], axis=-1)
             else:
-                decoder_gt = model_data[self._camview_rgb]
+                decoder_gt = model_data[self._rgb_camera_name]
 
             # computes the average log prob of ground-truth labels given the predictions
             likes.image = tf.reduce_mean(image_pred.log_prob(decoder_gt))
@@ -393,10 +478,10 @@ class VMAIL(tools.Module):
         cnn_act = acts[self._c.cnn_act]
         dense_act = acts[self._c.dense_act]
 
-        self._encode = models.ConvEncoder(self._c.cnn_depth, cnn_act, camview_rgb=self._camview_rgb, camview_depth=self._camview_depth, use_depth_obs=self._c.use_depth_obs)
+        self._encode = models.ConvEncoder(self._c.cnn_depth, cnn_act, rgb_camera_name=self._rgb_camera_name, depth_camera_name=self._depth_camera_name, use_depth_obs=self._c.use_depth_obs)
 
         if self._c.use_proprio_obs == True:
-            self._encode_proprio = models.DenseEncoder(self._c.out_units, num_layers=0, hidden_units=self._c.hidden_units, activation=dense_act, camview_rgb=self._camview_rgb)
+            self._encode_proprio = models.DenseEncoder(self._c.out_units, num_layers=0, hidden_units=self._c.hidden_units, activation=dense_act, rgb_camera_name=self._rgb_camera_name)
 
         self._dynamics_model = models.RSSM(self._c.stoch_size, self._c.deter_size, self._c.deter_size)
         self._decode = models.ConvDecoder(self._c.cnn_depth, cnn_act, use_depth_obs=self._c.use_depth_obs)
@@ -410,7 +495,7 @@ class VMAIL(tools.Module):
             model_modules.append(self._encode_proprio)
 
         if self._c.pcont:
-            self._pcont = models.DenseDecoder((), 3, self._c.num_units, 'binary', act=act)
+            self._pcont = models.DenseDecoder((), 3, self._c.num_units, 'binary', act=acts)
             model_modules.append(self._pcont)
         
         Optimizer = functools.partial(tools.Adam, wd=self._c.weight_decay, clip=self._c.grad_clip, wdpattern=self._c.weight_decay_pattern)
@@ -512,11 +597,11 @@ class VMAIL(tools.Module):
 
     
     def _image_summaries(self, data, embed, image_pred):
-        # print("inside image summaries:", data[self._camview_rgb].shape, data[self._camview_depth].shape, image_pred.mode().shape)
+        # print("inside image summaries:", data[self._rgb_camera_name].shape, data[self._depth_camera_name].shape, image_pred.mode().shape)
         if self._c.use_depth_obs == True:
-            truth = tf.concat([data[self._camview_rgb][:6] + 0.5, data[self._camview_depth][:6] + 0.5], axis=-1)     # [6,50,84,84,4]
+            truth = tf.concat([data[self._rgb_camera_name][:6] + 0.5, data[self._depth_camera_name][:6] + 0.5], axis=-1)     # [6,50,84,84,4]
         else:
-            truth = data[self._camview_rgb][:6] + 0.5             # [6,50,84,84,3]
+            truth = data[self._rgb_camera_name][:6] + 0.5             # [6,50,84,84,3]
         
         recon = image_pred.mode()[:6]     # [6,50,84,84,3/4]
         init, _ = self._dynamics_model.observe(embed[:6, :5], data['action'][:6, :5])
@@ -587,22 +672,30 @@ def count_steps(datadir, config):
 
 
 def load_dataset(directory, config):
-    # print("This should be expert directory:", directory)
-    episode = next(tools.load_episodes(directory, 1, config=config))
-    # print("Episode:", episode)
-    # for k, v in episode.items():
-    #     # print(k, ":", v.shape)
-    #     if v.dtype == 'float64':
-    #         episode[k] = v.astype('float32')
-    
-    types = {k: v.dtype for k, v in episode.items()}
-    shapes = {k: (None,) + v.shape[1:] for k, v in episode.items()}
-    generator = lambda: tools.load_episodes(directory, config.train_steps, config.batch_length, config.dataset_balance, config=config)
-    dataset = tf.data.Dataset.from_generator(generator, types, shapes)
-    dataset = dataset.batch(config.batch_size, drop_remainder=True)
-    dataset = dataset.map(functools.partial(preprocess, config=config))
-    dataset = dataset.prefetch(10)
-    return dataset
+    """
+    The following sample_episode variable just loads a single episode as an example to get 
+    the data types and shapes of each variable.
+    """
+
+    sample_episode = next(tools.load_episodes(directory, rescan=1, config=config))
+    dtypes = {k: v.dtype for k, v in sample_episode.items()}
+    shapes = {k: (None,) + v.shape[1:] for k, v in sample_episode.items()}
+
+    generator = lambda: tools.load_episodes(directory, rescan=config.train_steps, batch_length=config.batch_length, balance=config.dataset_balance, config=config)
+    dataset = tf.data.Dataset.from_generator(generator, dtypes, shapes)
+
+    dataset = dataset.batch(config.batch_size, drop_remainder=True)    # drops incomplete batches, if any, at the end of dataset
+    n_dataset = dataset.map(functools.partial(preprocess, config=config))    # performs preprocessing using config
+    n_dataset = n_dataset.prefetch(10)    # prefetches fetches data in background while model is training to reduce train time
+
+    # iterate over the dataset to get shape and pose
+    # for _, data_batch in enumerate(dataset):
+    #     # pdb.set_trace()
+    #     rgb_img_batch = data_batch["agentview_image"]
+    #     depth_img_batch = data_batch["agentview_depth"]
+    #     break
+
+    return n_dataset, dataset
 
 
 def summarize_episode(episode, config, datadir, writer, prefix):
@@ -637,7 +730,7 @@ def make_env(config, writer, prefix, model_datadir, policy_datadir, store):
     elif config.env == 'robosuite':
         env = wrappers.RobosuiteTask(task=config.task, 
                                     horizon=config.time_limit, 
-                                    camview=config.camera_names, 
+                                    camera_name=config.camera_names, 
                                     use_camera_obs=config.use_camera_obs, 
                                     use_depth_obs=config.use_depth_obs, 
                                     use_object_obs=config.use_object_obs, 
@@ -735,6 +828,7 @@ def main(config):
     test_envs = [wrappers.Async(lambda: make_env(config, tf_writer, 'test', model_datadir, policy_datadir, store=False), config.parallel) for _ in range(config.num_envs)]
 
     actspace = train_envs[0].action_space        # Box([-1. -1. -1. -1. -1. -1. -1.], [1. 1. 1. 1. 1. 1. 1.], (7,), float32)
+    camera_intrinsic_mat = train_envs[0].get_camera_intrinsic_mat
 
     # Prefill dataset with random episodes.
     step = count_steps(model_datadir, config)        # episode_length in model_datadir * number of expert demo files (64*250 = 16000)
@@ -749,7 +843,7 @@ def main(config):
     # Train and Evaluate the agent at regular intervals
     step = count_steps(policy_datadir, config)
     print(f'Simulating agent for {config.steps - step} steps.')
-    agent = VMAIL(config, model_datadir, policy_datadir, expert_datadir, actspace, tf_writer)
+    agent = VMAIL(config, model_datadir, policy_datadir, expert_datadir, actspace, tf_writer, camera_intrinsic_mat)
     print('Agent Created !!!')
 
     # Load existing pickle files
@@ -760,7 +854,7 @@ def main(config):
     steps_to_simulate = config.eval_every // config.action_repeat
     state = None
     
-    print("Starting Training...")
+    print("Starting Training ...")
     while step < config.steps:
         print(f'{step}/{config.steps}, Start evaluation.')
 
@@ -802,6 +896,6 @@ if __name__ == '__main__':
     print("#### ARGUMENTS")
     for arg, value in args_dict.items():
         print(f"{arg}: {value}")
-
     print()
+
     main(parser.parse_args())

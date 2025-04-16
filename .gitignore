@@ -11,21 +11,15 @@ dm_control
 dmc2gym/
 gym/
 gymbase/
-LAPAL/
+# LAPAL/
 robomimic/
 .mujoco/
 runs/
 papers/
-VMAIL/car_racing/
-VMAIL/expert_data/car_expert/
-VMAIL/expert_data/claw_p3_v0_expert/
-VMAIL/expert_data/claw_p3_v1_expert/
-VMAIL/expert_data/claw_p4_v0_expert/
-VMAIL/expert_data/claw_p4_v1_expert/
-VMAIL/expert_data/robosuite_expert/
-VMAIL/expert_data/robosuite_expert_small/
-VMAIL/robel_claw/
-VMAIL/robosuite_lift_old/
+# VMAIL/car_racing/*
+# VMAIL/expert_data/*
+# VMAIL/robel_claw/*
+# VMAIL/robosuite_lift_old/
 images/
 log_*/
 sacae_orig/logtemp/
@@ -37,7 +31,7 @@ maple/
 ompl/
 pnn-dr-main/
 pnn-dr-main-robosuite/results/
-SceneGrasp/
+# SceneGrasp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

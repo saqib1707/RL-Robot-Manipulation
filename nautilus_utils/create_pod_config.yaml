@@ -20,8 +20,8 @@ spec:
             - NVIDIA-A10
   containers:
   - name: gpu-container
-    # image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
-    image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
+    image: nvidia/cudagl:11.3.0-devel-ubuntu20.04    # Choose desired docker image
+    # image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
     command: ["sleep", "infinity"]    # NEVER EVER USE "sleep infinity" command FOR JOBS. Can be used for pods as they are deleted in 6 hrs.
     resources:
       limits:
@@ -35,17 +35,17 @@ spec:
     volumeMounts:
     - name: saqibcephsharedvol2
       mountPath: /home/saqibcephsharedvol2
-    - name: erl-ucsd
-      mountPath: /home/erl-ucsd
+    # - name: pgml
+    #   mountPath: /home/pgml
     - name: shm
       mountPath: /dev/shm
   volumes:
     - name: saqibcephsharedvol2
       persistentVolumeClaim:
         claimName: saqibcephsharedvol2
-    - name: erl-ucsd
-      persistentVolumeClaim:
-        claimName: erl-ucsd
+    # - name: erl-ucsd
+    #   persistentVolumeClaim:
+    #     claimName: erl-ucsd
     - name: shm
       emptyDir:
         medium: Memory

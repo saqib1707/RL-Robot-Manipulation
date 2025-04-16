@@ -113,22 +113,22 @@ class RSSM(tools.Module):
 
 
 class ConvEncoder(tools.Module):
-    def __init__(self, depth=32, act=tf.nn.relu, camview_rgb="agentview_image", camview_depth="agentview_depth", use_depth_obs=False):
+    def __init__(self, depth=32, act=tf.nn.relu, rgb_camera_name="agentview_image", depth_camera_name="agentview_depth", use_depth_obs=False):
         self._act = act            # ReLU
         self._depth = depth     # 32
-        self._camview_rgb = camview_rgb
-        self._camview_depth = camview_depth
+        self._rgb_camera_name = rgb_camera_name
+        self._depth_camera_name = depth_camera_name
         self._use_depth_obs = use_depth_obs
-        # print("inside convencoder:", self._act, self._depth, self._camview_rgb)
+        # print("inside convencoder:", self._act, self._depth, self._rgb_camera_name)
 
     def __call__(self, obs):
-        # print("stage-0:", obs[self._camview_rgb].shape)         # [128,50,84,84,3]
-        # print("stage-1:", tuple(obs[self._camview_rgb].shape[-3:]))     # [84,84,3]
-        # print("stage-2:", obs[self._camview_depth].shape)            # [128,50,84,84,1]
+        # print("stage-0:", obs[self._rgb_camera_name].shape)         # [128,50,84,84,3]
+        # print("stage-1:", tuple(obs[self._rgb_camera_name].shape[-3:]))     # [84,84,3]
+        # print("stage-2:", obs[self._depth_camera_name].shape)            # [128,50,84,84,1]
         
-        rgb = tf.reshape(obs[self._camview_rgb], (-1,) + tuple(obs[self._camview_rgb].shape[-3:]))    # [6400,84,84,3]
+        rgb = tf.reshape(obs[self._rgb_camera_name], (-1,) + tuple(obs[self._rgb_camera_name].shape[-3:]))    # [6400,84,84,3]
         if self._use_depth_obs:
-            depth = tf.reshape(obs[self._camview_depth], (-1,) + tuple(obs[self._camview_depth].shape[-3:]))    # [6400,84,84,1]
+            depth = tf.reshape(obs[self._depth_camera_name], (-1,) + tuple(obs[self._depth_camera_name].shape[-3:]))    # [6400,84,84,1]
             x = tf.concat([rgb, depth], axis=-1)            # [6400,84,84,4]
         else:
             x = rgb
@@ -144,7 +144,7 @@ class ConvEncoder(tools.Module):
         # print("stage4:", x.shape)
         x = self.get('h5', tfkl.Conv2D, filters=8 * self._depth, kernel_size=2, strides=1, activation=self._act)(x)     # [6400,2,2,256]
         # print("stage5:", x.shape)
-        shape = tf.concat([tf.shape(obs[self._camview_rgb])[:-3], [32 * self._depth]], 0)    # =[128,50,1024]
+        shape = tf.concat([tf.shape(obs[self._rgb_camera_name])[:-3], [32 * self._depth]], 0)    # =[128,50,1024]
 
         # converts each image in a batch to 1024-dim vector
         return tf.reshape(x, shape)    # [128,50,1024]
@@ -178,19 +178,19 @@ class ConvDecoder(tools.Module):
 
 
 class DenseEncoder(tools.Module):
-    def __init__(self, out_units=32, num_layers=1, hidden_units=32, activation=tf.nn.relu, camview_rgb="agentview_image"):
+    def __init__(self, out_units=32, num_layers=1, hidden_units=32, activation=tf.nn.relu, rgb_camera_name="agentview_image"):
         self._activation = activation
         self._out_units = out_units
         self._hidden_units = hidden_units
         self._num_layers = num_layers
-        self._camview_rgb = camview_rgb
-        # self._camview_depth = camview_depth
+        self._rgb_camera_name = rgb_camera_name
+        # self._depth_camera_name = depth_camera_name
 
     def __call__(self, obs):
         dtype = prec.global_policy().compute_dtype    # float32
         proprio_obs = []
         # for k, v in obs.items():
-        #     if k not in [self._camview_rgb, self._camview_depth, 'action', 'reward', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_eef_to_cube_yaw']:
+        #     if k not in [self._rgb_camera_name, self._depth_camera_name, 'action', 'reward', 'cube_pos', 'cube_quat', 'cube_to_robot0_eef_pos', 'cube_to_robot0_eef_quat', 'robot0_eef_to_cube_yaw']:
         #         # print(v.shape)
         #         proprio_obs.append(tf.cast(v, dtype))
         proprio_obs.append(tf.cast(obs['robot0_proprio-state'], dtype))
@@ -205,7 +205,7 @@ class DenseEncoder(tools.Module):
         x = self.get(f'hout', tfkl.Dense, units=self._out_units)(x)
         # print("final:", x.shape)
 
-        shape = tf.concat([tf.shape(obs[self._camview_rgb])[:-3], [self._out_units]], 0)    # [128,50,32]
+        shape = tf.concat([tf.shape(obs[self._rgb_camera_name])[:-3], [self._out_units]], 0)    # [128,50,32]
         return tf.reshape(x, shape)
 
 
